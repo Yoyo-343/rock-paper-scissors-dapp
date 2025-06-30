@@ -1,0 +1,14 @@
+[sncast.sepolia]
+url = "https://starknet-sepolia.public.blastapi.io"
+account = "sepolia_deployer"
+
+[sncast.default]
+url = "https://starknet-sepolia.public.blastapi.io"
+account = "sepolia_deployer"
+
+# Deployed Contract Details
+# Rock Paper Scissors Game Contract
+# Contract Address: 0x0638e6d45d476e71044f8e8d7119f6158748bf5bd56018e2f9275c96499c52b9
+# Class Hash: 0x0024f4b9f5e84256a6287d9b05cb9bbdccf579898f7376f63bf20fffb0bb6b25
+# Owner: 0x71e556cac2db7b027b0034f5e7d38d20e3b758c431ebc99b0d6cc34855db097
+# Entry Fee: 0.0005 ETH ($1 at $2000/ETH) 
