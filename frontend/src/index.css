@@ -1,0 +1,110 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 10 10% 3%;
+    --foreground: 0 0% 98%;
+
+    --card: 20 13% 8%;
+    --card-foreground: 0 0% 95%;
+
+    --popover: 20 13% 8%;
+    --popover-foreground: 0 0% 95%;
+
+    --primary: 25 100% 60%;
+    --primary-foreground: 20 13% 8%;
+
+    --secondary: 15 70% 58%;
+    --secondary-foreground: 20 13% 8%;
+
+    --muted: 20 13% 15%;
+    --muted-foreground: 20 9% 46%;
+
+    --accent: 30 83% 58%;
+    --accent-foreground: 0 0% 98%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 20 13% 20%;
+    --input: 20 13% 15%;
+    --ring: 25 100% 60%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 20 13% 8%;
+    --sidebar-foreground: 20 9% 46%;
+    --sidebar-primary: 25 100% 60%;
+    --sidebar-primary-foreground: 20 13% 8%;
+    --sidebar-accent: 20 13% 15%;
+    --sidebar-accent-foreground: 0 0% 95%;
+    --sidebar-border: 20 13% 20%;
+    --sidebar-ring: 25 100% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-cyber-darker text-foreground overflow-x-hidden;
+    background-image: 
+      linear-gradient(rgba(255,107,53,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,107,53,0.03) 1px, transparent 1px),
+      linear-gradient(135deg, #1a0f0a 0%, #2e1a1a 50%, #3e1616 100%);
+    background-size: 50px 50px, 50px 50px, 100% 100%;
+    background-attachment: fixed;
+  }
+}
+
+@layer components {
+  .cyber-card {
+    @apply relative bg-card/80 backdrop-blur-sm border border-cyber-orange/20 rounded-xl shadow-2xl;
+    @apply hover:border-cyber-orange/40 transition-all duration-300;
+    background: linear-gradient(145deg, rgba(26, 15, 10, 0.8), rgba(46, 26, 26, 0.8));
+  }
+  
+  .cyber-card::before {
+    content: '';
+    @apply absolute inset-0 rounded-xl opacity-0 transition-opacity duration-300;
+    background: linear-gradient(45deg, transparent, rgba(255,107,53,0.1), transparent);
+  }
+  
+  .cyber-card:hover::before {
+    @apply opacity-100;
+  }
+  
+  .neon-text {
+    text-shadow: 0 0 10px currentColor, 0 0 20px currentColor, 0 0 30px currentColor;
+  }
+  
+  .cyber-button {
+    @apply relative px-8 py-4 bg-gradient-to-r from-cyber-orange to-cyber-red rounded-lg font-bold text-black;
+    @apply hover:shadow-[0_0_30px_rgba(255,107,53,0.5)] transition-all duration-300 transform hover:scale-105;
+    @apply border border-cyber-orange/50 hover:border-cyber-orange;
+  }
+  
+  .cyber-button::before {
+    content: '';
+    @apply absolute inset-0 rounded-lg bg-gradient-to-r from-transparent via-white/20 to-transparent;
+    @apply opacity-0 hover:opacity-100 transition-opacity duration-300;
+  }
+  
+  .loading-spinner {
+    @apply inline-block w-4 h-4 border-2 border-cyber-orange border-t-transparent rounded-full animate-spin;
+  }
+  
+  .scan-line {
+    @apply absolute left-0 w-full h-px bg-gradient-to-r from-transparent via-cyber-orange to-transparent;
+    @apply opacity-30 animate-scan-line;
+  }
+}
