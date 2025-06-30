@@ -1,0 +1,1 @@
+{"version":1,"contracts":[{"id":"t3093iich86ca","package_name":"rock_paper_scissors","contract_name":"RockPaperScissorsGame","module_path":"rock_paper_scissors::RockPaperScissorsGame","artifacts":{"sierra":"rock_paper_scissors_unittest_RockPaperScissorsGame.test.contract_class.json","casm":null}}]}
