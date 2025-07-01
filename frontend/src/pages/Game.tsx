@@ -149,16 +149,18 @@ const Game = () => {
 
           {/* Round result */}
           {gameStatus === 'round_result' && playerMove && opponentMove && lastRoundWinner && (
-            <RoundResult
-              playerMove={playerMove}
-              opponentMove={opponentMove}
-              roundWinner={lastRoundWinner}
-              playerWins={playerWins}
-              opponentWins={opponentWins}
-              currentRound={currentRound}
-              opponentName={opponentName}
-              onContinue={continueToNextRound}
-            />
+            <div className="fixed inset-0 z-50">
+              <RoundResult
+                playerMove={playerMove}
+                opponentMove={opponentMove}
+                roundWinner={lastRoundWinner}
+                playerWins={playerWins}
+                opponentWins={opponentWins}
+                currentRound={currentRound}
+                opponentName={opponentName}
+                onContinue={continueToNextRound}
+              />
+            </div>
           )}
           
           {/* Game completed */}
