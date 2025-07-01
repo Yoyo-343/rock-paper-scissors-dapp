@@ -39,11 +39,24 @@ const Game = () => {
     navigate('/');
   };
 
-  // Auto-join queue when component mounts and wallet is connected
+  // Auto-join queue when component mounts
   React.useEffect(() => {
-    // Wait for connection to be established before joining
+    // Since user reached this page by clicking "Play Now", wallet should be connected
+    // Add a small delay to allow connection state to stabilize after page navigation
+    const timer = setTimeout(() => {
+      if (gameStatus === 'idle') {
+        console.log('🎮 Auto-joining matchmaking queue...');
+        joinQueue();
+      }
+    }, 500); // Small delay to ensure connection state is ready
+
+    return () => clearTimeout(timer);
+  }, [gameStatus, joinQueue]);
+
+  // Backup: If connection is detected and still in idle state, join queue
+  React.useEffect(() => {
     if (isConnected && gameStatus === 'idle') {
-      console.log('🔗 Wallet connected, joining queue...');
+      console.log('🔗 Connection confirmed, ensuring queue join...');
       joinQueue();
     }
   }, [isConnected, gameStatus, joinQueue]);
@@ -54,14 +67,7 @@ const Game = () => {
       
       <div className="flex-1 flex items-center justify-center px-4 py-8">
         <div className="w-full max-w-4xl">
-          {/* Show connection status */}
-          {!isConnected && (
-            <div className="text-center mb-8">
-              <div className="inline-flex items-center gap-2 px-4 py-2 bg-cyber-amber/20 border border-cyber-amber/40 rounded-lg text-cyber-amber">
-                <span className="text-sm font-medium">⚠️ Establishing connection...</span>
-              </div>
-            </div>
-          )}
+
 
           {/* Show error if exists */}
           {error && (

@@ -46,9 +46,10 @@ export const useRockPaperScissorsContract = () => {
 
   // Contract interaction functions
   const handleJoinQueue = async () => {
-    if (!account || !address || status !== 'connected') {
+    // More lenient connection check - user should be connected if they reached this page
+    if (!account && !address) {
       console.log('Connection status:', { account: !!account, address: !!address, status });
-      setError('Wallet not connected. Please refresh the page and try again.');
+      setError('Connection issue detected. Please refresh the page and try again.');
       return;
     }
     
@@ -80,9 +81,9 @@ export const useRockPaperScissorsContract = () => {
   };
 
   const handleCommitMove = async (move: Move) => {
-    if (!account || !address || status !== 'connected') {
+    if (!account && !address) {
       console.log('Connection status:', { account: !!account, address: !!address, status });
-      setError('Wallet not connected. Please refresh the page and try again.');
+      setError('Connection issue detected. Please refresh the page and try again.');
       return;
     }
     
@@ -146,9 +147,9 @@ export const useRockPaperScissorsContract = () => {
   };
 
   const handleClaimPrize = async () => {
-    if (!account || !address || status !== 'connected') {
+    if (!account && !address) {
       console.log('Connection status:', { account: !!account, address: !!address, status });
-      setError('Wallet not connected. Please refresh the page and try again.');
+      setError('Connection issue detected. Please refresh the page and try again.');
       return;
     }
     
@@ -185,7 +186,9 @@ export const useRockPaperScissorsContract = () => {
     setError(null);
   };
 
-  const isConnected = Boolean(account && address && status === 'connected');
+  // More lenient connection detection - if user has account OR address, consider connected
+  // This handles brief moments during page navigation where status might not be immediately 'connected'
+  const isConnected = Boolean((account || address) && status !== 'disconnected');
 
   return {
     // State
