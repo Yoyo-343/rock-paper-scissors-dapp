@@ -61,14 +61,14 @@ const RoundResult: React.FC<RoundResultProps> = ({
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4">
-      <div className="cyber-card p-8 w-full max-w-3xl mx-auto">
-        {/* Round number */}
-        <div className="text-center mb-8">
+      <div className="cyber-card p-8 w-full max-w-3xl mx-auto relative">
+        {/* Round number - absolutely centered */}
+        <div className="absolute top-8 left-0 right-0 text-center">
           <p className="text-cyber-blue text-2xl font-bold">Round {currentRound}</p>
         </div>
 
-        {/* Moves display - perfectly centered */}
-        <div className="flex items-center justify-center gap-16 mb-12">
+        {/* Moves display - perfectly centered with proper top margin */}
+        <div className="flex items-center justify-center gap-16 mb-12 mt-16">
           {/* Player move */}
           <div className="flex flex-col items-center">
             <div className="text-8xl mb-4">{getMoveIcon(playerMove)}</div>

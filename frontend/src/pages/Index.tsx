@@ -75,15 +75,6 @@ const Index = () => {
     });
   }, [isConnected, address, account, isConnecting]);
 
-  // Navigate to game page after successful Cartridge Controller connection
-  useEffect(() => {
-    if (isConnected && address) {
-      console.log('🎯 Connection detected, navigating to game arena with address:', address);
-      setIsConnecting(false);
-      navigate('/game');
-    }
-  }, [isConnected, address, navigate]);
-
   const handlePlayClick = async () => {
     // If already connecting, allow user to cancel
     if (isConnecting) {
@@ -92,81 +83,93 @@ const Index = () => {
       return;
     }
     
-    if (!isConnected) {
-      setIsConnecting(true);
-      
-      // Add safety timeout to prevent infinite loading
-      const safetyTimeout = setTimeout(() => {
-        console.error('🚨 Safety timeout triggered - resetting connection state');
-        setIsConnecting(false);
-      }, 45000); // 45 seconds max
-      
-      try {
-        console.log('🎮 Opening Cartridge Controller...');
-        console.log('📋 Available connectors:', connectors.map(c => ({ id: c.id, name: c.name })));
-        
-        // Get the Cartridge connector - try multiple possible IDs
-        let cartridgeConnector = connectors.find(c => c.id === 'controller');
-        if (!cartridgeConnector) {
-          cartridgeConnector = connectors.find(c => c.id === 'cartridge');
-        }
-        if (!cartridgeConnector) {
-          cartridgeConnector = connectors.find(c => c.name?.toLowerCase().includes('cartridge'));
-        }
-        if (!cartridgeConnector) {
-          cartridgeConnector = connectors[0]; // fallback to first connector
-        }
-        
-        if (!cartridgeConnector) {
-          throw new Error('No connectors available');
-        }
-        
-        console.log('🔗 Using connector:', { id: cartridgeConnector.id, name: cartridgeConnector.name });
-        console.log('🔗 Attempting to connect...');
-        
-        // Add connection timeout
-        const connectionPromise = connect({ connector: cartridgeConnector });
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Connection timeout')), 30000)
-        );
-        
-        const result = await Promise.race([connectionPromise, timeoutPromise]);
-        console.log('🔗 Connect result:', result);
-        
-        console.log('✅ Cartridge Controller connected successfully!');
-        console.log('🔑 Session policies activated for Rock Paper Scissors');
-        
-        clearTimeout(safetyTimeout);
-        
-        // Since connection succeeded, navigate to game immediately
-        console.log('🎯 Connection succeeded, navigating to game page...');
-        setIsConnecting(false);
-        navigate('/game');
-        
-      } catch (error) {
-        clearTimeout(safetyTimeout);
-        console.error('❌ Cartridge Controller connection failed:', error);
-        console.error('❌ Error details:', {
-          message: error.message,
-          stack: error.stack,
-          cause: error.cause
-        });
-        setIsConnecting(false);
-        
-        // Show user-friendly error message
-        if (error.message === 'Connection timeout') {
-          console.error('Connection timed out. Please try again.');
-        } else if (error.message.includes('User rejected') || error.message.includes('user rejected')) {
-          console.log('User cancelled connection');
-        } else {
-          console.error('Failed to connect wallet. Please try again.');
-        }
-      }
-    } else {
-      // Already connected, proceed to game
-      console.log('🎯 Entering game arena with address:', address);
+    // If already connected, proceed directly to game
+    if (isConnected && address) {
+      console.log('🎯 Existing session detected, entering game arena with address:', address);
       navigate('/game');
+      return;
     }
+    
+    // Check if there's a persisted session we can use
+    console.log('🔍 Checking for existing Cartridge Controller session...');
+    
+    // Try to navigate to game first - if user has a valid session, the game will work
+    // If not, they'll get appropriate feedback there
+    console.log('🎮 Proceeding to game - will handle connection there if needed');
+    navigate('/game');
+    
+    /* 
+    // Only show connection flow if user explicitly wants to connect a new session
+    setIsConnecting(true);
+    
+    // Add safety timeout to prevent infinite loading
+    const safetyTimeout = setTimeout(() => {
+      console.error('🚨 Safety timeout triggered - resetting connection state');
+      setIsConnecting(false);
+    }, 45000); // 45 seconds max
+    
+    try {
+      console.log('🎮 Opening Cartridge Controller...');
+      console.log('📋 Available connectors:', connectors.map(c => ({ id: c.id, name: c.name })));
+      
+      // Get the Cartridge connector - try multiple possible IDs
+      let cartridgeConnector = connectors.find(c => c.id === 'controller');
+      if (!cartridgeConnector) {
+        cartridgeConnector = connectors.find(c => c.id === 'cartridge');
+      }
+      if (!cartridgeConnector) {
+        cartridgeConnector = connectors.find(c => c.name?.toLowerCase().includes('cartridge'));
+      }
+      if (!cartridgeConnector) {
+        cartridgeConnector = connectors[0]; // fallback to first connector
+      }
+      
+      if (!cartridgeConnector) {
+        throw new Error('No connectors available');
+      }
+      
+      console.log('🔗 Using connector:', { id: cartridgeConnector.id, name: cartridgeConnector.name });
+      console.log('🔗 Attempting to connect...');
+      
+      // Add connection timeout
+      const connectionPromise = connect({ connector: cartridgeConnector });
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Connection timeout')), 30000)
+      );
+      
+      const result = await Promise.race([connectionPromise, timeoutPromise]);
+      console.log('🔗 Connect result:', result);
+      
+      console.log('✅ Cartridge Controller connected successfully!');
+      console.log('🔑 Session policies activated for Rock Paper Scissors');
+      
+      clearTimeout(safetyTimeout);
+      
+      // Since connection succeeded, navigate to game immediately
+      console.log('🎯 Connection succeeded, navigating to game page...');
+      setIsConnecting(false);
+      navigate('/game');
+      
+    } catch (error) {
+      clearTimeout(safetyTimeout);
+      console.error('❌ Cartridge Controller connection failed:', error);
+      console.error('❌ Error details:', {
+        message: error.message,
+        stack: error.stack,
+        cause: error.cause
+      });
+      setIsConnecting(false);
+      
+      // Show user-friendly error message
+      if (error.message === 'Connection timeout') {
+        console.error('Connection timed out. Please try again.');
+      } else if (error.message.includes('User rejected') || error.message.includes('user rejected')) {
+        console.log('User cancelled connection');
+      } else {
+        console.error('Failed to connect wallet. Please try again.');
+      }
+    }
+    */
   };
 
   const handleDisconnect = () => {

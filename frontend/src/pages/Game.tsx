@@ -59,25 +59,16 @@ const Game = () => {
 
   // Auto-join queue when component mounts
   React.useEffect(() => {
-    // Since user reached this page by clicking "Play Now", wallet should be connected
-    // Add a small delay to allow connection state to stabilize after page navigation
+    // Allow game to start regardless of connection status - simulation mode handles this
     const timer = setTimeout(() => {
       if (gameStatus === 'idle') {
         console.log('🎮 Auto-joining matchmaking queue...');
         joinQueue();
       }
-    }, 500); // Small delay to ensure connection state is ready
+    }, 500); // Small delay to ensure component is ready
 
     return () => clearTimeout(timer);
   }, [gameStatus, joinQueue]);
-
-  // Backup: If connection is detected and still in idle state, join queue
-  React.useEffect(() => {
-    if (isConnected && gameStatus === 'idle') {
-      console.log('🔗 Connection confirmed, ensuring queue join...');
-      joinQueue();
-    }
-  }, [isConnected, gameStatus, joinQueue]);
 
   return (
     <div className="min-h-screen flex flex-col relative">
