@@ -5,6 +5,7 @@ import GameQueue from '../components/game/GameQueue';
 import MoveSelection from '../components/game/MoveSelection';
 import WaitingForOpponent from '../components/game/WaitingForOpponent';
 import GameComplete from '../components/game/GameComplete';
+import CountdownTimer from '../components/game/CountdownTimer';
 import FloatingSymbols from '../components/FloatingSymbols';
 
 const Game = () => {
@@ -13,13 +14,17 @@ const Game = () => {
     gameStatus,
     queueLength,
     playerMove,
+    opponentAddress,
+    opponentName,
+    moveTimeoutStart,
     isLoading,
     error,
     isConnected,
     joinQueue,
     commitMove,
     claimPrize,
-    resetGame
+    resetGame,
+    MOVE_TIMEOUT_SECONDS
   } = useRockPaperScissorsContract();
 
   // Handle move selection
@@ -37,6 +42,12 @@ const Game = () => {
   const handleClaimAndNewGame = async () => {
     await claimPrize();
     navigate('/');
+  };
+
+  // Handle timeout when opponent doesn't move in time
+  const handleMoveTimeout = () => {
+    console.log('⏰ Opponent move timeout');
+    // In a real implementation, this would trigger a win condition for the player
   };
 
   // Auto-join queue when component mounts
@@ -68,7 +79,6 @@ const Game = () => {
       <div className="flex-1 flex items-center justify-center px-4 py-8">
         <div className="w-full max-w-4xl">
 
-
           {/* Show error if exists */}
           {error && (
             <div className="text-center mb-8">
@@ -88,9 +98,26 @@ const Game = () => {
             <div className="text-center">
               <div className="mb-8">
                 <h2 className="text-4xl font-bold text-cyber-orange mb-4">Opponent Found!</h2>
-                <p className="text-cyber-blue">Choose your move and commit it to the blockchain</p>
+                {opponentName && (
+                  <p className="text-cyber-blue text-lg mb-4">
+                    You are playing against <span className="text-cyber-gold font-bold">{opponentName}</span>
+                  </p>
+                )}
               </div>
-                             <MoveSelection onMoveSelect={handleMoveSelect} />
+              
+              {/* Countdown timer for opponent move */}
+              {moveTimeoutStart > 0 && (
+                <div className="mb-6 max-w-xs mx-auto">
+                  <CountdownTimer
+                    startTime={moveTimeoutStart}
+                    timeoutSeconds={MOVE_TIMEOUT_SECONDS}
+                    onTimeout={handleMoveTimeout}
+                    label="Opponent's time to move"
+                  />
+                </div>
+              )}
+              
+              <MoveSelection onMoveSelect={handleMoveSelect} />
             </div>
           )}
           
@@ -99,8 +126,11 @@ const Game = () => {
             <div className="text-center">
               <div className="mb-8">
                 <h2 className="text-4xl font-bold text-cyber-orange mb-4">Move Committed!</h2>
-                <p className="text-cyber-blue">Your move: <span className="text-cyber-gold font-bold">{playerMove}</span></p>
-                <p className="text-cyber-amber">Revealing move automatically...</p>
+                {opponentName && (
+                  <p className="text-cyber-blue text-lg">
+                    Waiting for <span className="text-cyber-gold font-bold">{opponentName}</span> to reveal their move...
+                  </p>
+                )}
               </div>
               {playerMove && <WaitingForOpponent playerMove={playerMove} />}
             </div>

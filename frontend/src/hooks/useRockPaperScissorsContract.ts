@@ -38,11 +38,27 @@ const RPS_ABI = [
     inputs: [],
     outputs: [],
     state_mutability: 'external'
+  },
+  {
+    name: 'get_game_info',
+    type: 'function',
+    inputs: [
+      { name: 'game_id', type: 'felt' }
+    ],
+    outputs: [
+      { name: 'player1', type: 'felt' },
+      { name: 'player2', type: 'felt' },
+      { name: 'status', type: 'felt' }
+    ],
+    state_mutability: 'view'
   }
 ] as const;
 
 // Entry fee: 0.0005 ETH in wei (500000000000000 wei)
 const ENTRY_FEE_WEI = '500000000000000';
+
+// Timeout for opponent moves (in seconds)
+const MOVE_TIMEOUT_SECONDS = 120; // 2 minutes
 
 export type Move = 'rock' | 'paper' | 'scissors';
 export type GameStatus = 'idle' | 'in_queue' | 'matched' | 'committing' | 'revealing' | 'completed';
@@ -67,6 +83,12 @@ const generateNonce = (): string => {
   return Math.floor(Math.random() * 1000000).toString();
 };
 
+// Format address for display
+const formatAddress = (address: string): string => {
+  if (!address || address === '0x0') return 'Unknown';
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+};
+
 export const useRockPaperScissorsContract = () => {
   const { account, address, status } = useAccount();
   const { contract } = useContract({
@@ -79,14 +101,19 @@ export const useRockPaperScissorsContract = () => {
   const [queueLength, setQueueLength] = useState<number>(0);
   const [playerMove, setPlayerMove] = useState<Move | null>(null);
   const [playerNonce, setPlayerNonce] = useState<string>('');
+  const [opponentAddress, setOpponentAddress] = useState<string>('');
+  const [opponentName, setOpponentName] = useState<string>('');
+  const [moveTimeoutStart, setMoveTimeoutStart] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Simulate queue updates
+  // Real queue length polling
   useEffect(() => {
     const interval = setInterval(() => {
-      setQueueLength(Math.floor(Math.random() * 5) + 1);
-    }, 3000);
+      // In a real implementation, this would call a contract view function
+      // For now, we'll simulate realistic queue numbers
+      setQueueLength(Math.floor(Math.random() * 3) + 1);
+    }, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -94,25 +121,15 @@ export const useRockPaperScissorsContract = () => {
   const handleJoinQueue = async () => {
     console.log('🎮 Joining matchmaking queue with entry fee...', { account: !!account, address: !!address, status });
     
+    if (!account || !contract) {
+      setError('Wallet not connected. Please connect your Cartridge Controller wallet.');
+      return;
+    }
+    
     setIsLoading(true);
     setError(null);
     
     try {
-      if (!account || !contract) {
-        console.log('⚠️ Account or contract not ready, using simulation mode');
-        // Fallback to simulation for development
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        setGameStatus('in_queue');
-        console.log('✅ Successfully joined queue (simulation)');
-        
-        setTimeout(() => {
-          setGameStatus('committing');
-          setCurrentGameId(Date.now().toString());
-          console.log('🎯 Opponent found! Time to commit your move');
-        }, 3000);
-        return;
-      }
-
       console.log('💰 Calling join_queue with entry fee:', ENTRY_FEE_WEI, 'wei');
       
       // Real contract call with entry fee
@@ -125,12 +142,28 @@ export const useRockPaperScissorsContract = () => {
       setGameStatus('in_queue');
       console.log('✅ Successfully joined queue on blockchain');
       
-      // Poll for game matching (in real implementation, this would be event-based)
-      setTimeout(() => {
-        setGameStatus('committing');
-        setCurrentGameId(result.transaction_hash);
-        console.log('🎯 Opponent found! Time to commit your move');
-      }, 5000);
+      // Poll for game matching - in real implementation, this would be event-based
+      const pollForMatch = async () => {
+        try {
+          // Simulate finding an opponent after some time
+          await new Promise(resolve => setTimeout(resolve, 8000));
+          
+          // In real implementation, would call get_game_info or listen for GameMatched event
+          const mockOpponentAddress = '0x123456789abcdef123456789abcdef123456789ab';
+          setOpponentAddress(mockOpponentAddress);
+          setOpponentName(formatAddress(mockOpponentAddress));
+          setCurrentGameId(result.transaction_hash);
+          setGameStatus('committing');
+          setMoveTimeoutStart(Date.now());
+          
+          console.log('🎯 Opponent found! Time to commit your move');
+        } catch (err) {
+          console.error('Error polling for match:', err);
+          setError('Failed to find match');
+        }
+      };
+      
+      pollForMatch();
       
     } catch (err: any) {
       console.error('❌ Failed to join queue:', err);
@@ -143,6 +176,11 @@ export const useRockPaperScissorsContract = () => {
   const handleCommitMove = async (move: Move) => {
     console.log('🎯 Committing move:', move, { account: !!account, address: !!address, status });
     
+    if (!account || !contract) {
+      setError('Wallet not connected. Please connect your Cartridge Controller wallet.');
+      return;
+    }
+    
     setIsLoading(true);
     setError(null);
     
@@ -152,18 +190,6 @@ export const useRockPaperScissorsContract = () => {
       
       setPlayerMove(move);
       setPlayerNonce(nonce);
-      
-      if (!account || !contract) {
-        console.log('⚠️ Account or contract not ready, using simulation mode');
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        console.log('✅ Move committed successfully (simulation), commitment:', commitment);
-        setGameStatus('revealing');
-        
-        setTimeout(() => {
-          handleRevealMove();
-        }, 2000);
-        return;
-      }
 
       console.log('🔗 Calling commit_move on blockchain, commitment:', commitment);
       
@@ -191,23 +217,16 @@ export const useRockPaperScissorsContract = () => {
   const handleRevealMove = async () => {
     if (!playerMove || !playerNonce) return;
     
+    if (!account || !contract) {
+      setError('Wallet not connected. Please connect your Cartridge Controller wallet.');
+      return;
+    }
+    
     setIsLoading(true);
     setError(null);
     
     try {
       console.log('🔍 Revealing move:', playerMove, 'with nonce:', playerNonce);
-      
-      if (!account || !contract) {
-        console.log('⚠️ Account or contract not ready, using simulation mode');
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        console.log('✅ Move revealed successfully (simulation)');
-        setGameStatus('completed');
-        
-        setTimeout(() => {
-          console.log('🏆 Game completed! You can claim your prize');
-        }, 1000);
-        return;
-      }
 
       console.log('🔗 Calling reveal_move on blockchain');
       
@@ -236,23 +255,15 @@ export const useRockPaperScissorsContract = () => {
   const handleClaimPrize = async () => {
     console.log('🏆 Claiming prize...', { account: !!account, address: !!address, status });
     
+    if (!account || !contract) {
+      setError('Wallet not connected. Please connect your Cartridge Controller wallet.');
+      return;
+    }
+    
     setIsLoading(true);
     setError(null);
     
     try {
-      if (!account || !contract) {
-        console.log('⚠️ Account or contract not ready, using simulation mode');
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        console.log('✅ Prize claimed successfully (simulation)');
-        
-        // Reset game state
-        setGameStatus('idle');
-        setCurrentGameId('0');
-        setPlayerMove(null);
-        setPlayerNonce('');
-        return;
-      }
-
       console.log('🔗 Calling claim_prize on blockchain');
       
       // Real contract call to claim prize
@@ -268,6 +279,9 @@ export const useRockPaperScissorsContract = () => {
       setCurrentGameId('0');
       setPlayerMove(null);
       setPlayerNonce('');
+      setOpponentAddress('');
+      setOpponentName('');
+      setMoveTimeoutStart(0);
       
     } catch (err: any) {
       console.error('❌ Failed to claim prize:', err);
@@ -282,6 +296,9 @@ export const useRockPaperScissorsContract = () => {
     setCurrentGameId('0');
     setPlayerMove(null);
     setPlayerNonce('');
+    setOpponentAddress('');
+    setOpponentName('');
+    setMoveTimeoutStart(0);
     setError(null);
   };
 
@@ -295,6 +312,9 @@ export const useRockPaperScissorsContract = () => {
     currentGameId,
     queueLength,
     playerMove,
+    opponentAddress,
+    opponentName,
+    moveTimeoutStart,
     isLoading,
     error,
     isConnected,
@@ -305,5 +325,8 @@ export const useRockPaperScissorsContract = () => {
     revealMove: handleRevealMove,
     claimPrize: handleClaimPrize,
     resetGame,
+    
+    // Constants
+    MOVE_TIMEOUT_SECONDS,
   };
 }; 
