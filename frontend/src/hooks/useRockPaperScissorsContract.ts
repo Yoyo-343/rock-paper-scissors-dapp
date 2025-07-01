@@ -117,6 +117,66 @@ export const useRockPaperScissorsContract = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // Auto-reveal when both players have committed (simulation of both players completing their moves)
+  useEffect(() => {
+    if (gameStatus === 'revealing' && playerMove && playerNonce) {
+      console.log('🔄 Auto-revealing moves after both players committed...');
+      
+      const revealTimer = setTimeout(() => {
+        console.log('⚡ Triggering auto-reveal...');
+        // Call handleRevealMove directly to avoid dependency issues
+        if (!playerMove || !playerNonce) return;
+        
+        setIsLoading(true);
+        setError(null);
+        
+        const doReveal = async () => {
+          try {
+            console.log('🔍 Revealing move:', playerMove, 'with nonce:', playerNonce);
+
+            if (!account || !contract) {
+              console.log('⚠️ Account or contract not ready, using simulation mode');
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              console.log('✅ Move revealed successfully (simulation)');
+              setGameStatus('completed');
+              
+              setTimeout(() => {
+                console.log('🏆 Game completed! You can claim your prize');
+              }, 1000);
+              return;
+            }
+
+            console.log('🔗 Calling reveal_move on blockchain');
+            
+            // Real contract call to reveal move
+            const moveNumber = moveToNumber(playerMove);
+            const call = contract.populate('reveal_move', [moveNumber, playerNonce]);
+            const result = await account.execute(call);
+            
+            console.log('🔗 Transaction submitted:', result.transaction_hash);
+            console.log('✅ Move revealed successfully on blockchain');
+            setGameStatus('completed');
+            
+            // Show result and allow prize claim
+            setTimeout(() => {
+              console.log('🏆 Game completed! You can claim your prize');
+            }, 2000);
+            
+          } catch (err: any) {
+            console.error('❌ Failed to reveal move:', err);
+            setError(err.message || 'Failed to reveal move');
+          } finally {
+            setIsLoading(false);
+          }
+        };
+        
+        doReveal();
+      }, 3000); // 3 seconds delay
+      
+      return () => clearTimeout(revealTimer);
+    }
+  }, [gameStatus, playerMove, playerNonce, account, contract]);
+
   // Contract interaction functions
   const handleJoinQueue = async () => {
     console.log('🎮 Joining matchmaking queue with entry fee...', { account: !!account, address: !!address, status });
@@ -218,10 +278,7 @@ export const useRockPaperScissorsContract = () => {
         console.log('✅ Move committed successfully (simulation), commitment:', commitment);
         setGameStatus('revealing');
         
-        // Auto-proceed to reveal after both players have committed (shorter delay in simulation)
-        setTimeout(() => {
-          handleRevealMove();
-        }, 3000); // 3 seconds delay to simulate both players committing
+        // Auto-reveal will be handled by useEffect
         return;
       }
 
@@ -235,10 +292,7 @@ export const useRockPaperScissorsContract = () => {
       console.log('✅ Move committed successfully on blockchain');
       setGameStatus('revealing');
       
-      // Auto-proceed to reveal after blockchain confirmation
-      setTimeout(() => {
-        handleRevealMove();
-      }, 5000); // Slightly longer for real blockchain calls
+      // Auto-reveal will be handled by useEffect
       
     } catch (err: any) {
       console.error('❌ Failed to commit move:', err);
