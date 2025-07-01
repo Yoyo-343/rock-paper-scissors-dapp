@@ -16,7 +16,7 @@ A decentralized Rock Paper Scissors game built on Starknet with a cyberpunk-them
 ### Smart Contract (Cairo)
 - **Language**: Cairo 2.7.0
 - **Network**: Starknet (Sepolia Testnet)
-- **Oracle**: Pragma Network for ETH/USD price feeds
+- **Oracle**: Pragma Network for STRK/USD price feeds
 - **Wallet**: Cartridge Controller for session keys
 
 ### Frontend
@@ -90,7 +90,7 @@ fn claim_prize(ref self: ContractState, game_id: u256);
 
 // View functions
 fn get_required_entry_fee(self: @ContractState) -> u256;
-fn get_current_eth_price(self: @ContractState) -> u128;
+    fn get_current_strk_price(self: @ContractState) -> u128;
 fn get_game_info(self: @ContractState, game_id: u256) -> (...);
 ```
 
