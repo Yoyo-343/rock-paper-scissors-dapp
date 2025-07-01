@@ -1,66 +1,104 @@
 import React from 'react';
-import { Move } from '../../pages/Game';
 
 interface RoundResultProps {
-  playerMove: Move;
-  opponentMove: Move;
-  winner: 'player' | 'opponent' | 'tie';
-  onNextRound: () => void;
+  playerMove: string;
+  opponentMove: string;
+  roundWinner: 'player' | 'opponent' | 'tie';
+  playerWins: number;
+  opponentWins: number;
+  currentRound: number;
+  opponentName: string;
+  onContinue: () => void;
 }
 
 const RoundResult: React.FC<RoundResultProps> = ({
   playerMove,
   opponentMove,
-  winner,
-  onNextRound
+  roundWinner,
+  playerWins,
+  opponentWins,
+  currentRound,
+  opponentName,
+  onContinue
 }) => {
-  const getMoveIcon = (move: Move) => {
+  const getMoveIcon = (move: string) => {
     const icons = {
       rock: '✊',
       paper: '✋',
       scissors: '✌️'
     };
-    return icons[move];
+    return icons[move as keyof typeof icons] || '❓';
   };
 
-  const getResultText = () => {
-    if (winner === 'tie') return 'It\'s a Tie!';
-    if (winner === 'player') return 'You Win!';
-    return 'You Lose!';
+  const getResultMessage = () => {
+    if (roundWinner === 'tie') return 'Round Tied!';
+    if (roundWinner === 'player') return 'You Won This Round!';
+    return `${opponentName} Won This Round!`;
   };
 
   const getResultColor = () => {
-    if (winner === 'tie') return 'text-cyber-amber';
-    if (winner === 'player') return 'text-green-400';
-    return 'text-red-400';
+    if (roundWinner === 'tie') return 'text-cyber-amber';
+    if (roundWinner === 'player') return 'text-cyber-green';
+    return 'text-cyber-red';
   };
 
   return (
     <div className="text-center animate-fade-in-up">
       <div className="cyber-card p-8 max-w-2xl mx-auto">
-        <h2 className={`text-3xl font-bold mb-6 neon-text ${getResultColor()}`}>
-          {getResultText()}
-        </h2>
-        
-        <div className="grid grid-cols-2 gap-8 mb-8">
+        {/* Round number */}
+        <div className="mb-6">
+          <p className="text-cyber-blue text-lg">Round {currentRound}</p>
+        </div>
+
+        {/* Moves display */}
+        <div className="flex justify-around items-center mb-8">
+          {/* Player move */}
           <div className="text-center">
-            <div className="text-5xl mb-2">{getMoveIcon(playerMove)}</div>
-            <div className="text-lg font-semibold text-cyber-orange">You</div>
-            <div className="text-sm text-muted-foreground capitalize">{playerMove}</div>
+            <div className="text-6xl mb-2">{getMoveIcon(playerMove)}</div>
+            <p className="text-cyber-gold font-bold">Your Move</p>
+            <p className="text-white capitalize">{playerMove}</p>
           </div>
-          
+
+          {/* VS */}
+          <div className="text-cyber-orange text-4xl font-bold">VS</div>
+
+          {/* Opponent move */}
           <div className="text-center">
-            <div className="text-5xl mb-2">{getMoveIcon(opponentMove)}</div>
-            <div className="text-lg font-semibold text-cyber-red">Opponent</div>
-            <div className="text-sm text-muted-foreground capitalize">{opponentMove}</div>
+            <div className="text-6xl mb-2">{getMoveIcon(opponentMove)}</div>
+            <p className="text-cyber-gold font-bold">{opponentName}</p>
+            <p className="text-white capitalize">{opponentMove}</p>
           </div>
         </div>
-        
+
+        {/* Round result */}
+        <div className="mb-6">
+          <h2 className={`text-3xl font-bold ${getResultColor()} mb-4`}>
+            {getResultMessage()}
+          </h2>
+        </div>
+
+        {/* Current score */}
+        <div className="mb-8">
+          <div className="flex justify-center gap-8 text-xl">
+            <div className="text-center">
+              <p className="text-cyber-blue">You</p>
+              <p className="text-cyber-green text-3xl font-bold">{playerWins}</p>
+            </div>
+            <div className="text-cyber-orange text-2xl">-</div>
+            <div className="text-center">
+              <p className="text-cyber-blue">{opponentName}</p>
+              <p className="text-cyber-red text-3xl font-bold">{opponentWins}</p>
+            </div>
+          </div>
+          <p className="text-cyber-amber text-sm mt-2">First to 3 wins!</p>
+        </div>
+
+        {/* Continue button */}
         <button
-          onClick={onNextRound}
-          className="cyber-button px-8 py-3"
+          onClick={onContinue}
+          className="cyber-button text-xl px-8 py-4 bg-cyber-blue/20 border-cyber-blue text-cyber-blue hover:bg-cyber-blue/30"
         >
-          Continue
+          {playerWins >= 3 || opponentWins >= 3 ? 'View Final Result' : 'Next Round'}
         </button>
       </div>
     </div>

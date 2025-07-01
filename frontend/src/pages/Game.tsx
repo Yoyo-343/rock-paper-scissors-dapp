@@ -4,6 +4,7 @@ import { useRockPaperScissorsContract, Move, GameStatus } from '../hooks/useRock
 import GameQueue from '../components/game/GameQueue';
 import MoveSelection from '../components/game/MoveSelection';
 import WaitingForOpponent from '../components/game/WaitingForOpponent';
+import RoundResult from '../components/game/RoundResult';
 import GameComplete from '../components/game/GameComplete';
 import CountdownTimer from '../components/game/CountdownTimer';
 import FloatingSymbols from '../components/FloatingSymbols';
@@ -16,7 +17,12 @@ const Game = () => {
     playerMove,
     opponentAddress,
     opponentName,
+    opponentMove,
     moveTimeoutStart,
+    playerWins,
+    opponentWins,
+    currentRound,
+    lastRoundWinner,
     isLoading,
     error,
     isConnected,
@@ -24,6 +30,7 @@ const Game = () => {
     commitMove,
     claimPrize,
     resetGame,
+    continueToNextRound,
     MOVE_TIMEOUT_SECONDS
   } = useRockPaperScissorsContract();
 
@@ -97,15 +104,19 @@ const Game = () => {
           {gameStatus === 'committing' && (
             <div className="text-center">
               <div className="mb-8">
-                <h2 className="text-4xl font-bold text-cyber-orange mb-4">Opponent Found!</h2>
+                <h2 className="text-4xl font-bold text-cyber-orange mb-4">Round {currentRound}</h2>
                 {opponentName && (
                   <p className="text-cyber-blue text-lg mb-4">
                     You are playing against <span className="text-cyber-gold font-bold">{opponentName}</span>
                   </p>
                 )}
+                <div className="text-cyber-amber mb-4">
+                  <p>Score: <span className="text-cyber-green font-bold">{playerWins}</span> - <span className="text-cyber-red font-bold">{opponentWins}</span></p>
+                  <p className="text-sm">First to 3 wins!</p>
+                </div>
               </div>
               
-              {/* Countdown timer for opponent move */}
+              {/* Countdown timer for move */}
               {moveTimeoutStart > 0 && (
                 <div className="mb-6 max-w-xs mx-auto">
                   <CountdownTimer
@@ -125,7 +136,7 @@ const Game = () => {
           {gameStatus === 'revealing' && (
             <div className="text-center">
               <div className="mb-8">
-                <h2 className="text-4xl font-bold text-cyber-orange mb-4">Move Committed!</h2>
+                <h2 className="text-4xl font-bold text-cyber-orange mb-4">Round {currentRound}</h2>
                 {opponentName && (
                   <p className="text-cyber-blue text-lg">
                     Waiting for <span className="text-cyber-gold font-bold">{opponentName}</span> to reveal their move...
@@ -135,28 +146,59 @@ const Game = () => {
               {playerMove && <WaitingForOpponent playerMove={playerMove} />}
             </div>
           )}
+
+          {/* Round result */}
+          {gameStatus === 'round_result' && playerMove && opponentMove && lastRoundWinner && (
+            <RoundResult
+              playerMove={playerMove}
+              opponentMove={opponentMove}
+              roundWinner={lastRoundWinner}
+              playerWins={playerWins}
+              opponentWins={opponentWins}
+              currentRound={currentRound}
+              opponentName={opponentName}
+              onContinue={continueToNextRound}
+            />
+          )}
           
           {/* Game completed */}
           {gameStatus === 'completed' && (
             <div className="text-center">
               <div className="mb-8">
                 <h2 className="text-4xl font-bold text-cyber-green mb-4">Game Complete!</h2>
-                <p className="text-cyber-blue">Your move was revealed successfully</p>
-                <p className="text-cyber-gold">You can now claim your prize!</p>
+                <div className="mb-4">
+                  <p className="text-cyber-blue text-lg">Final Score:</p>
+                  <p className="text-2xl font-bold">
+                    <span className="text-cyber-green">{playerWins}</span> - <span className="text-cyber-red">{opponentWins}</span>
+                  </p>
+                </div>
+                {playerWins >= 3 ? (
+                  <>
+                    <p className="text-cyber-green text-xl mb-2">🎉 You Won the Game! 🎉</p>
+                    <p className="text-cyber-gold">You can now claim your prize!</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-cyber-red text-xl mb-2">😔 You Lost the Game</p>
+                    <p className="text-cyber-blue">Better luck next time!</p>
+                  </>
+                )}
               </div>
               <div className="space-y-4">
-                <button
-                  onClick={handleClaimAndNewGame}
-                  disabled={isLoading}
-                  className="cyber-button text-xl px-8 py-4 bg-cyber-green/20 border-cyber-green text-cyber-green hover:bg-cyber-green/30"
-                >
-                  {isLoading ? 'Claiming Prize...' : 'Claim Prize & Play Again'}
-                </button>
+                {playerWins >= 3 && (
+                  <button
+                    onClick={handleClaimAndNewGame}
+                    disabled={isLoading}
+                    className="cyber-button text-xl px-8 py-4 bg-cyber-green/20 border-cyber-green text-cyber-green hover:bg-cyber-green/30"
+                  >
+                    {isLoading ? 'Claiming Prize...' : 'Claim Prize & Play Again'}
+                  </button>
+                )}
                 <button
                   onClick={handleGameComplete}
                   className="cyber-button text-lg px-6 py-3 ml-4"
                 >
-                  Exit Game
+                  {playerWins >= 3 ? 'Exit Game' : 'Play Again'}
                 </button>
               </div>
             </div>

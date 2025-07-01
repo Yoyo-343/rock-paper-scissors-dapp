@@ -61,7 +61,7 @@ const ENTRY_FEE_WEI = '500000000000000';
 const MOVE_TIMEOUT_SECONDS = 30; // 30 seconds
 
 export type Move = 'rock' | 'paper' | 'scissors';
-export type GameStatus = 'idle' | 'in_queue' | 'matched' | 'committing' | 'revealing' | 'completed';
+export type GameStatus = 'idle' | 'in_queue' | 'matched' | 'committing' | 'revealing' | 'round_result' | 'completed';
 
 const moveToNumber = (move: Move): number => {
   switch (move) {
@@ -70,6 +70,25 @@ const moveToNumber = (move: Move): number => {
     case 'scissors': return 3;
     default: return 0;
   }
+};
+
+// Determine round winner
+const determineWinner = (playerMove: Move, opponentMove: Move): 'player' | 'opponent' | 'tie' => {
+  if (playerMove === opponentMove) return 'tie';
+  
+  const winConditions = {
+    rock: 'scissors',
+    paper: 'rock', 
+    scissors: 'paper'
+  };
+  
+  return winConditions[playerMove] === opponentMove ? 'player' : 'opponent';
+};
+
+// Generate random opponent move
+const generateOpponentMove = (): Move => {
+  const moves: Move[] = ['rock', 'paper', 'scissors'];
+  return moves[Math.floor(Math.random() * moves.length)];
 };
 
 // Generate a commitment hash for commit-reveal scheme
@@ -103,7 +122,12 @@ export const useRockPaperScissorsContract = () => {
   const [playerNonce, setPlayerNonce] = useState<string>('');
   const [opponentAddress, setOpponentAddress] = useState<string>('');
   const [opponentName, setOpponentName] = useState<string>('');
+  const [opponentMove, setOpponentMove] = useState<Move | null>(null);
   const [moveTimeoutStart, setMoveTimeoutStart] = useState<number>(0);
+  const [playerWins, setPlayerWins] = useState<number>(0);
+  const [opponentWins, setOpponentWins] = useState<number>(0);
+  const [currentRound, setCurrentRound] = useState<number>(1);
+  const [lastRoundWinner, setLastRoundWinner] = useState<'player' | 'opponent' | 'tie' | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -134,15 +158,42 @@ export const useRockPaperScissorsContract = () => {
           try {
             console.log('🔍 Revealing move:', playerMove, 'with nonce:', playerNonce);
 
+            // Generate opponent move for this round
+            const opponentMoveForRound = generateOpponentMove();
+            setOpponentMove(opponentMoveForRound);
+            
+            console.log(`🎯 Round ${currentRound} moves:`, { player: playerMove, opponent: opponentMoveForRound });
+
             if (!account || !contract) {
               console.log('⚠️ Account or contract not ready, using simulation mode');
               await new Promise(resolve => setTimeout(resolve, 2000));
               console.log('✅ Move revealed successfully (simulation)');
-              setGameStatus('completed');
               
-              setTimeout(() => {
-                console.log('🏆 Game completed! You can claim your prize');
-              }, 1000);
+              // Determine round winner
+              const roundWinner = determineWinner(playerMove, opponentMoveForRound);
+              setLastRoundWinner(roundWinner);
+              
+              // Update win counts
+              let newPlayerWins = playerWins;
+              let newOpponentWins = opponentWins;
+              
+              if (roundWinner === 'player') {
+                newPlayerWins = playerWins + 1;
+                setPlayerWins(newPlayerWins);
+              } else if (roundWinner === 'opponent') {
+                newOpponentWins = opponentWins + 1;
+                setOpponentWins(newOpponentWins);
+              }
+              
+              // Show round result first
+              setGameStatus('round_result');
+              
+              console.log(`🏆 Round ${currentRound} result:`, { 
+                winner: roundWinner, 
+                playerWins: newPlayerWins, 
+                opponentWins: newOpponentWins,
+                moves: { player: playerMove, opponent: opponentMoveForRound }
+              });
               return;
             }
 
@@ -155,12 +206,32 @@ export const useRockPaperScissorsContract = () => {
             
             console.log('🔗 Transaction submitted:', result.transaction_hash);
             console.log('✅ Move revealed successfully on blockchain');
-            setGameStatus('completed');
             
-            // Show result and allow prize claim
-            setTimeout(() => {
-              console.log('🏆 Game completed! You can claim your prize');
-            }, 2000);
+            // Determine round winner (same logic for blockchain)
+            const roundWinner = determineWinner(playerMove, opponentMoveForRound);
+            setLastRoundWinner(roundWinner);
+            
+            // Update win counts
+            let newPlayerWins = playerWins;
+            let newOpponentWins = opponentWins;
+            
+            if (roundWinner === 'player') {
+              newPlayerWins = playerWins + 1;
+              setPlayerWins(newPlayerWins);
+            } else if (roundWinner === 'opponent') {
+              newOpponentWins = opponentWins + 1;
+              setOpponentWins(newOpponentWins);
+            }
+            
+            // Show round result first
+            setGameStatus('round_result');
+            
+            console.log(`🏆 Round ${currentRound} result (blockchain):`, { 
+              winner: roundWinner, 
+              playerWins: newPlayerWins, 
+              opponentWins: newOpponentWins,
+              moves: { player: playerMove, opponent: opponentMoveForRound }
+            });
             
           } catch (err: any) {
             console.error('❌ Failed to reveal move:', err);
@@ -175,7 +246,7 @@ export const useRockPaperScissorsContract = () => {
       
       return () => clearTimeout(revealTimer);
     }
-  }, [gameStatus, playerMove, playerNonce, account, contract]);
+  }, [gameStatus, playerMove, playerNonce, account, contract, currentRound, playerWins, opponentWins]);
 
   // Contract interaction functions
   const handleJoinQueue = async () => {
@@ -347,6 +418,47 @@ export const useRockPaperScissorsContract = () => {
     }
   };
 
+  const resetGame = () => {
+    setGameStatus('idle');
+    setCurrentGameId('0');
+    setPlayerMove(null);
+    setPlayerNonce('');
+    setOpponentAddress('');
+    setOpponentName('');
+    setOpponentMove(null);
+    setMoveTimeoutStart(0);
+    setPlayerWins(0);
+    setOpponentWins(0);
+    setCurrentRound(1);
+    setLastRoundWinner(null);
+    setError(null);
+  };
+
+  // Continue to next round
+  const continueToNextRound = () => {
+    // Check if game is complete (first to 3 wins) - check current state
+    const newPlayerWins = playerWins;
+    const newOpponentWins = opponentWins;
+    
+    if (newPlayerWins >= 3 || newOpponentWins >= 3) {
+      console.log(`🏆 Game complete! Final score: Player ${newPlayerWins} - Opponent ${newOpponentWins}`);
+      setGameStatus('completed');
+      return;
+    }
+    
+    // Reset round state for next round
+    setPlayerMove(null);
+    setPlayerNonce('');
+    setOpponentMove(null);
+    setLastRoundWinner(null);
+    setCurrentRound(prev => prev + 1);
+    setGameStatus('committing');
+    setMoveTimeoutStart(Date.now());
+    
+    console.log(`🔄 Starting round ${currentRound + 1}, score: Player ${newPlayerWins} - Opponent ${newOpponentWins}`);
+  };
+
+  // Handle claiming prize and resetting
   const handleClaimPrize = async () => {
     console.log('🏆 Claiming prize...', { account: !!account, address: !!address, status });
     
@@ -359,14 +471,8 @@ export const useRockPaperScissorsContract = () => {
         await new Promise(resolve => setTimeout(resolve, 2000));
         console.log('✅ Prize claimed successfully (simulation)');
         
-        // Reset game state
-        setGameStatus('idle');
-        setCurrentGameId('0');
-        setPlayerMove(null);
-        setPlayerNonce('');
-        setOpponentAddress('');
-        setOpponentName('');
-        setMoveTimeoutStart(0);
+        // Reset all game state
+        resetGame();
         return;
       }
 
@@ -380,14 +486,8 @@ export const useRockPaperScissorsContract = () => {
       console.log('✅ Prize claimed successfully on blockchain');
       console.log('💰 Prize should be transferred to your account');
       
-      // Reset game state
-      setGameStatus('idle');
-      setCurrentGameId('0');
-      setPlayerMove(null);
-      setPlayerNonce('');
-      setOpponentAddress('');
-      setOpponentName('');
-      setMoveTimeoutStart(0);
+      // Reset all game state
+      resetGame();
       
     } catch (err: any) {
       console.error('❌ Failed to claim prize:', err);
@@ -395,17 +495,6 @@ export const useRockPaperScissorsContract = () => {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const resetGame = () => {
-    setGameStatus('idle');
-    setCurrentGameId('0');
-    setPlayerMove(null);
-    setPlayerNonce('');
-    setOpponentAddress('');
-    setOpponentName('');
-    setMoveTimeoutStart(0);
-    setError(null);
   };
 
   // More lenient connection detection - if user has account OR address, consider connected
@@ -420,7 +509,12 @@ export const useRockPaperScissorsContract = () => {
     playerMove,
     opponentAddress,
     opponentName,
+    opponentMove,
     moveTimeoutStart,
+    playerWins,
+    opponentWins,
+    currentRound,
+    lastRoundWinner,
     isLoading,
     error,
     isConnected,
@@ -431,6 +525,7 @@ export const useRockPaperScissorsContract = () => {
     revealMove: handleRevealMove,
     claimPrize: handleClaimPrize,
     resetGame,
+    continueToNextRound,
     
     // Constants
     MOVE_TIMEOUT_SECONDS,
