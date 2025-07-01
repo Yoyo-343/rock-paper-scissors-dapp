@@ -61,7 +61,7 @@ const ENTRY_FEE_WEI = '500000000000000';
 const MOVE_TIMEOUT_SECONDS = 30; // 30 seconds
 
 export type Move = 'rock' | 'paper' | 'scissors';
-export type GameStatus = 'idle' | 'in_queue' | 'matched' | 'committing' | 'revealing' | 'round_result' | 'completed';
+export type GameStatus = 'idle' | 'in_queue' | 'matched' | 'committing' | 'revealing' | 'round_result' | 'completed' | 'timeout_win';
 
 const moveToNumber = (move: Move): number => {
   switch (move) {
@@ -128,6 +128,8 @@ export const useRockPaperScissorsContract = () => {
   const [opponentWins, setOpponentWins] = useState<number>(0);
   const [currentRound, setCurrentRound] = useState<number>(1);
   const [lastRoundWinner, setLastRoundWinner] = useState<'player' | 'opponent' | 'tie' | null>(null);
+  const [gameWinner, setGameWinner] = useState<'player' | 'opponent' | 'timeout' | null>(null);
+  const [timeoutReason, setTimeoutReason] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -145,6 +147,19 @@ export const useRockPaperScissorsContract = () => {
   useEffect(() => {
     if (gameStatus === 'revealing' && playerMove && playerNonce) {
       console.log('🔄 Auto-revealing moves after both players committed...');
+      
+      // Add chance for opponent timeout during reveal phase (10% chance)
+      const opponentTimeoutChance = Math.random();
+      if (opponentTimeoutChance < 0.1) {
+        console.log('⏰ Opponent timed out during reveal phase!');
+        setTimeout(() => {
+          setGameWinner('player');
+          setTimeoutReason('Your opponent ran out of time to reveal their move');
+          setGameStatus('timeout_win');
+          console.log('🏆 Player wins by opponent timeout!');
+        }, 8000); // 8 seconds delay to simulate opponent thinking time
+        return;
+      }
       
       const revealTimer = setTimeout(() => {
         console.log('⚡ Triggering auto-reveal...');
@@ -349,6 +364,18 @@ export const useRockPaperScissorsContract = () => {
         console.log('✅ Move committed successfully (simulation), commitment:', commitment);
         setGameStatus('revealing');
         
+        // Add chance for opponent timeout during commit phase (5% chance)
+        const opponentTimeoutChance = Math.random();
+        if (opponentTimeoutChance < 0.05) {
+          console.log('⏰ Opponent timed out during commit phase (simulation)!');
+          setTimeout(() => {
+            setGameWinner('player');
+            setTimeoutReason('Your opponent failed to commit their move in time');
+            setGameStatus('timeout_win');
+            console.log('🏆 Player wins by opponent timeout during commit (simulation)!');
+          }, 15000); // 15 seconds delay to simulate waiting for opponent
+        }
+        
         // Auto-reveal will be handled by useEffect
         return;
       }
@@ -362,6 +389,18 @@ export const useRockPaperScissorsContract = () => {
       console.log('🔗 Transaction submitted:', result.transaction_hash);
       console.log('✅ Move committed successfully on blockchain');
       setGameStatus('revealing');
+      
+      // Add chance for opponent timeout during commit phase (5% chance)
+      const opponentTimeoutChance = Math.random();
+      if (opponentTimeoutChance < 0.05) {
+        console.log('⏰ Opponent timed out during commit phase!');
+        setTimeout(() => {
+          setGameWinner('player');
+          setTimeoutReason('Your opponent failed to commit their move in time');
+          setGameStatus('timeout_win');
+          console.log('🏆 Player wins by opponent timeout during commit!');
+        }, 15000); // 15 seconds delay to simulate waiting for opponent
+      }
       
       // Auto-reveal will be handled by useEffect
       
@@ -431,7 +470,19 @@ export const useRockPaperScissorsContract = () => {
     setOpponentWins(0);
     setCurrentRound(1);
     setLastRoundWinner(null);
+    setGameWinner(null);
+    setTimeoutReason('');
     setError(null);
+  };
+
+  // Handle move timeout - player loses the entire game
+  const handleMoveTimeout = () => {
+    console.log('⏰ Player move timeout - Game over!');
+    setGameWinner('opponent');
+    setTimeoutReason('You ran out of time to make your move');
+    setGameStatus('timeout_win');
+    
+    console.log('🏆 Opponent wins by timeout! They can claim the prize.');
   };
 
   // Continue to next round
@@ -515,6 +566,8 @@ export const useRockPaperScissorsContract = () => {
     opponentWins,
     currentRound,
     lastRoundWinner,
+    gameWinner,
+    timeoutReason,
     isLoading,
     error,
     isConnected,
@@ -526,6 +579,7 @@ export const useRockPaperScissorsContract = () => {
     claimPrize: handleClaimPrize,
     resetGame,
     continueToNextRound,
+    handleMoveTimeout,
     
     // Constants
     MOVE_TIMEOUT_SECONDS,

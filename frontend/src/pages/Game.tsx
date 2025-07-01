@@ -23,6 +23,8 @@ const Game = () => {
     opponentWins,
     currentRound,
     lastRoundWinner,
+    gameWinner,
+    timeoutReason,
     isLoading,
     error,
     isConnected,
@@ -31,6 +33,7 @@ const Game = () => {
     claimPrize,
     resetGame,
     continueToNextRound,
+    handleMoveTimeout,
     MOVE_TIMEOUT_SECONDS
   } = useRockPaperScissorsContract();
 
@@ -49,12 +52,6 @@ const Game = () => {
   const handleClaimAndNewGame = async () => {
     await claimPrize();
     navigate('/');
-  };
-
-  // Handle timeout when opponent doesn't move in time
-  const handleMoveTimeout = () => {
-    console.log('⏰ Opponent move timeout');
-    // In a real implementation, this would trigger a win condition for the player
   };
 
   // Auto-join queue when component mounts
@@ -192,6 +189,49 @@ const Game = () => {
                   className="cyber-button text-lg px-6 py-3 ml-4"
                 >
                   {playerWins >= 3 ? 'Exit Game' : 'Play Again'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Timeout Win */}
+          {gameStatus === 'timeout_win' && (
+            <div className="text-center">
+              <div className="mb-8">
+                <h2 className="text-4xl font-bold text-cyber-red mb-4">⏰ Time's Up!</h2>
+                <div className="mb-6">
+                  <p className="text-cyber-amber text-xl mb-4">{timeoutReason}</p>
+                  {gameWinner === 'player' ? (
+                    <>
+                      <p className="text-cyber-green text-2xl mb-2">🎉 You Win by Timeout! 🎉</p>
+                      <p className="text-cyber-gold">Your opponent didn't move in time. You can claim your prize!</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-cyber-red text-2xl mb-2">😔 You Lost by Timeout</p>
+                      <p className="text-cyber-blue">Your opponent wins the prize.</p>
+                    </>
+                  )}
+                </div>
+                <div className="mb-4">
+                  <p className="text-cyber-blue text-lg">Game ended in Round {currentRound}</p>
+                </div>
+              </div>
+              <div className="space-y-4">
+                {gameWinner === 'player' && (
+                  <button
+                    onClick={handleClaimAndNewGame}
+                    disabled={isLoading}
+                    className="cyber-button text-xl px-8 py-4 bg-cyber-green/20 border-cyber-green text-cyber-green hover:bg-cyber-green/30"
+                  >
+                    {isLoading ? 'Claiming Prize...' : 'Claim Prize & Play Again'}
+                  </button>
+                )}
+                <button
+                  onClick={handleGameComplete}
+                  className="cyber-button text-lg px-6 py-3 ml-4"
+                >
+                  {gameWinner === 'player' ? 'Exit Game' : 'Play Again'}
                 </button>
               </div>
             </div>

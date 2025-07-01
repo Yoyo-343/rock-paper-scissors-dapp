@@ -61,67 +61,70 @@ const RoundResult: React.FC<RoundResultProps> = ({
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4">
-      <div className="cyber-card p-8 w-full max-w-3xl mx-auto relative">
+      <div className="cyber-card p-12 w-[800px] h-[700px] mx-auto relative flex flex-col">
         {/* Round number - absolutely centered */}
         <div className="absolute top-8 left-0 right-0 text-center">
           <p className="text-cyber-blue text-2xl font-bold">Round {currentRound}</p>
         </div>
 
-        {/* Moves display - perfectly centered with proper top margin */}
-        <div className="flex items-center justify-center gap-16 mb-12 mt-16">
-          {/* Player move */}
-          <div className="flex flex-col items-center">
-            <div className="text-8xl mb-4">{getMoveIcon(playerMove)}</div>
-            <p className="text-cyber-gold font-bold text-xl mb-2">Your Move</p>
-            <p className="text-white text-lg capitalize">{playerMove}</p>
-          </div>
-
-          {/* VS - perfectly centered */}
-          <div className="flex flex-col items-center">
-            <div className="text-cyber-orange text-5xl font-bold">VS</div>
-          </div>
-
-          {/* Opponent move */}
-          <div className="flex flex-col items-center">
-            <div className="text-8xl mb-4">{getMoveIcon(opponentMove)}</div>
-            <p className="text-cyber-gold font-bold text-xl mb-2">{opponentName}</p>
-            <p className="text-white text-lg capitalize">{opponentMove}</p>
-          </div>
-        </div>
-
-        {/* Round result - centered */}
-        <div className="text-center mb-8">
-          <h2 className={`text-4xl font-bold ${getResultColor()} mb-6`}>
-            {getResultMessage()}
-          </h2>
-        </div>
-
-        {/* Current score - perfectly centered */}
-        <div className="text-center mb-10">
-          <div className="flex items-center justify-center gap-12 text-2xl">
-            <div className="flex flex-col items-center">
-              <p className="text-cyber-blue text-lg mb-2">You</p>
-              <p className="text-cyber-green text-4xl font-bold">{playerWins}</p>
+        {/* Main content - centered vertically in remaining space */}
+        <div className="flex-1 flex flex-col justify-center">
+          {/* Moves display - perfectly centered */}
+          <div className="flex items-center justify-center gap-20 mb-16">
+            {/* Player move */}
+            <div className="flex flex-col items-center w-32">
+              <div className="text-8xl mb-4">{getMoveIcon(playerMove)}</div>
+              <p className="text-cyber-gold font-bold text-xl mb-2 text-center">Your Move</p>
+              <p className="text-white text-lg capitalize text-center">{playerMove}</p>
             </div>
-            <div className="text-cyber-orange text-3xl font-bold">-</div>
+
+            {/* VS - perfectly centered */}
             <div className="flex flex-col items-center">
-              <p className="text-cyber-blue text-lg mb-2">{opponentName}</p>
-              <p className="text-cyber-red text-4xl font-bold">{opponentWins}</p>
+              <div className="text-cyber-orange text-5xl font-bold">VS</div>
+            </div>
+
+            {/* Opponent move */}
+            <div className="flex flex-col items-center w-32">
+              <div className="text-8xl mb-4">{getMoveIcon(opponentMove)}</div>
+              <p className="text-cyber-gold font-bold text-xl mb-2 text-center">{opponentName}</p>
+              <p className="text-white text-lg capitalize text-center">{opponentMove}</p>
             </div>
           </div>
-          <p className="text-cyber-amber text-lg mt-4">First to 3 wins!</p>
+
+          {/* Round result - centered */}
+          <div className="text-center mb-12">
+            <h2 className={`text-4xl font-bold ${getResultColor()}`}>
+              {getResultMessage()}
+            </h2>
+          </div>
+
+          {/* Current score - perfectly centered and aligned */}
+          <div className="text-center mb-16">
+            <div className="flex items-center justify-center gap-16">
+              <div className="flex flex-col items-center w-32">
+                <p className="text-cyber-blue text-xl font-medium mb-3">You</p>
+                <p className="text-cyber-green text-5xl font-bold">{playerWins}</p>
+              </div>
+              <div className="text-cyber-orange text-4xl font-bold">-</div>
+              <div className="flex flex-col items-center w-32">
+                <p className="text-cyber-blue text-xl font-medium mb-3">{opponentName}</p>
+                <p className="text-cyber-red text-5xl font-bold">{opponentWins}</p>
+              </div>
+            </div>
+            <p className="text-cyber-amber text-lg mt-6 font-medium">First to 3 wins!</p>
+          </div>
         </div>
 
-        {/* Auto-advance info - centered */}
-        <div className="text-center">
-          <div className="inline-flex flex-col items-center gap-3">
-            <p className="text-cyber-blue text-lg">
+        {/* Auto-advance info - centered at bottom */}
+        <div className="text-center pb-4">
+          <div className="inline-flex flex-col items-center gap-4">
+            <p className="text-cyber-blue text-xl font-medium">
               {playerWins >= 3 || opponentWins >= 3 ? 'Showing final result...' : 'Next round starting in...'}
             </p>
-            <div className="text-cyber-orange text-3xl font-bold">{countdown}</div>
+            <div className="text-cyber-orange text-4xl font-bold">{countdown}</div>
             <button
               onClick={onContinue}
-              className="cyber-button text-lg px-6 py-3 bg-cyber-blue/20 border-cyber-blue text-cyber-blue hover:bg-cyber-blue/30 transition-all"
+              className="cyber-button text-lg px-8 py-3 bg-cyber-blue/20 border-cyber-blue text-cyber-blue hover:bg-cyber-blue/30 transition-all font-medium"
             >
               {playerWins >= 3 || opponentWins >= 3 ? 'View Final Result' : 'Skip Wait'}
             </button>
