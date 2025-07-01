@@ -58,7 +58,7 @@ const RPS_ABI = [
 const ENTRY_FEE_WEI = '500000000000000';
 
 // Timeout for opponent moves (in seconds)
-const MOVE_TIMEOUT_SECONDS = 120; // 2 minutes
+const MOVE_TIMEOUT_SECONDS = 30; // 30 seconds
 
 export type Move = 'rock' | 'paper' | 'scissors';
 export type GameStatus = 'idle' | 'in_queue' | 'matched' | 'committing' | 'revealing' | 'completed';
@@ -218,9 +218,10 @@ export const useRockPaperScissorsContract = () => {
         console.log('✅ Move committed successfully (simulation), commitment:', commitment);
         setGameStatus('revealing');
         
+        // Auto-proceed to reveal after both players have committed (shorter delay in simulation)
         setTimeout(() => {
           handleRevealMove();
-        }, 2000);
+        }, 3000); // 3 seconds delay to simulate both players committing
         return;
       }
 
@@ -237,7 +238,7 @@ export const useRockPaperScissorsContract = () => {
       // Auto-proceed to reveal after blockchain confirmation
       setTimeout(() => {
         handleRevealMove();
-      }, 3000);
+      }, 5000); // Slightly longer for real blockchain calls
       
     } catch (err: any) {
       console.error('❌ Failed to commit move:', err);

@@ -112,7 +112,7 @@ const Game = () => {
                     startTime={moveTimeoutStart}
                     timeoutSeconds={MOVE_TIMEOUT_SECONDS}
                     onTimeout={handleMoveTimeout}
-                    label="Opponent's time to move"
+                    label="Time to make your move"
                   />
                 </div>
               )}
