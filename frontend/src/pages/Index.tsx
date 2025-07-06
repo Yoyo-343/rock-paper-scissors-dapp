@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Zap, Shield, Trophy, Play, RefreshCw, Loader2, ArrowRight } from 'lucide-react';
+import { Zap, Shield, Trophy, Play, RefreshCw, Loader2 } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from 'react-router-dom';
 import { useAccount, useConnect, useDisconnect } from '@starknet-react/core';
@@ -48,7 +48,6 @@ const Index = () => {
   
   const { queueLength } = useRockPaperScissorsContract();
   const [isConnecting, setIsConnecting] = useState(false);
-  const [showManualContinue, setShowManualContinue] = useState(false);
   const [strkPrice, setStrkPrice] = useState<number | null>(null);
   const [isLoadingPrice, setIsLoadingPrice] = useState(true);
   const [entryFeeStrk, setEntryFeeStrk] = useState<string>("0");
@@ -70,71 +69,31 @@ const Index = () => {
 
   // Auto-navigate when account becomes available
   useEffect(() => {
-    console.log('🔍 Account state changed:', {
-      account: !!account,
-      address: account?.address,
-      isConnecting,
-      status,
-      timestamp: new Date().toISOString()
-    });
-    
-    if (account) {
-      console.log('🎯 Account available, navigating to game...');
+    if (account && account.address) {
+      console.log('🎯 Account with address available - immediate navigation to game!');
+      console.log('✅ Session details:', {
+        account: !!account,
+        address: account.address,
+        status,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Reset connecting state
       if (isConnecting) {
-        console.log('🔄 Resetting connecting state...');
         setIsConnecting(false);
       }
-      if (showManualContinue) {
-        console.log('🔄 Resetting manual continue button...');
-        setShowManualContinue(false);
-      }
-      console.log('🚀 Navigating to game page...');
-      navigate('/game');
+      
+      // Small delay to ensure account is fully ready, then navigate
+      const navigationTimer = setTimeout(() => {
+        console.log('🚀 Navigating to game page...');
+        navigate('/game');
+      }, 500); // Very small delay for stability
+      
+      return () => clearTimeout(navigationTimer);
     }
-  }, [account, navigate, isConnecting, status, showManualContinue]);
+  }, [account, navigate, isConnecting, status]);
 
-  // Enhanced navigation fallback with manual option
-  useEffect(() => {
-    if (isConnecting && !account) {
-      console.log('📊 Starting connection monitoring...');
-      
-      const checkConnection = setInterval(() => {
-        console.log('🔍 Interval check:', {
-          hasAccount: !!account,
-          address: account?.address,
-          status,
-          isConnecting,
-          isConnected,
-          timestamp: new Date().toISOString()
-        });
-        
-        if (account) {
-          console.log('🎯 Account detected via interval check! Navigating...');
-          setIsConnecting(false);
-          navigate('/game');
-          clearInterval(checkConnection);
-        }
-      }, 1000);
-      
-      // Clear interval after 10 seconds and show manual option
-      const timeoutId = setTimeout(() => {
-        console.log('⏰ Connection monitoring timeout - showing manual navigation option');
-        clearInterval(checkConnection);
-        setIsConnecting(false);
-        setShowManualContinue(true);
-        toast({
-          title: "Session Created Successfully",
-          description: "Use the 'Continue to Game' button below to proceed.",
-          variant: "default",
-        });
-      }, 10000);
-      
-      return () => {
-        clearInterval(checkConnection);
-        clearTimeout(timeoutId);
-      };
-    }
-  }, [isConnecting, account, navigate, status, toast, isConnected]);
+
 
   // Load STRK price on mount
   useEffect(() => {
@@ -161,48 +120,48 @@ const Index = () => {
     fetchStrkPrice();
   }, []);
 
-  // Simplified connection handler following Cartridge best practices
+  // Simplified connection handler for automatic session creation and navigation
   const handlePlayClick = useCallback(async () => {
-    console.log('🎮 handlePlayClick called');
-    console.log('🔍 Current state before connect:', {
-      account: !!account,
-      address: account?.address,
-      isConnected,
-      isConnecting,
-      controllerConnector: !!controllerConnector,
-      connectorId: controllerConnector?.id,
-      connectorReady: controllerConnector?.ready
-    });
-
+    console.log('🎮 Play Now clicked');
+    
     // If already connected, proceed directly to game
-    if (account) {
-      console.log('🎯 Already connected, navigating to game...');
+    if (account && account.address) {
+      console.log('🎯 Session exists, navigating to game...');
       navigate('/game');
       return;
     }
 
-    // Otherwise popup controller
-    console.log('🎮 Opening Cartridge Controller...');
+    if (!controllerConnector) {
+      console.error('❌ Cartridge Controller not found');
+      toast({
+        title: "Connection Error",
+        description: "Cartridge Controller not available. Please refresh the page.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    console.log('🎮 Creating new Cartridge Controller session...');
     setIsConnecting(true);
     
     try {
-      console.log('🔗 Calling connect...');
+      console.log('🔗 Opening Cartridge Controller for session creation...');
       const connectResult = await connect({ connector: controllerConnector });
-      console.log('✅ Connect call completed, result:', connectResult);
+      console.log('✅ Cartridge Controller session creation initiated:', connectResult);
       
-      // Success! Let useEffect handle navigation when account becomes available
-      console.log('🎯 Connection call completed - waiting for account to become available...');
+      // The useEffect will handle automatic navigation when the account becomes available
+      console.log('🎯 Waiting for session to be established...');
       
     } catch (error) {
-      console.error('❌ Connection failed:', error);
+      console.error('❌ Failed to create Cartridge Controller session:', error);
       setIsConnecting(false);
       toast({
-        title: "Connection Error",
-        description: "Failed to connect to Cartridge Controller. Please try again.",
+        title: "Session Creation Failed",
+        description: "Failed to create Cartridge Controller session. Please try again.",
         variant: "destructive",
       });
     }
-  }, [account, controllerConnector, connect, navigate, toast, isConnected, isConnecting]);
+  }, [account, controllerConnector, connect, navigate, toast]);
 
   const handleDisconnect = async () => {
     try {
@@ -240,13 +199,13 @@ const Index = () => {
         </div>
       </header>
 
-      {/* Connection Status */}
+      {/* Session Status */}
       {isConnected && address && (
         <div className="text-center mb-8 px-4">
           <div className="inline-flex items-center gap-2 px-4 py-2 bg-green-500/20 border border-green-500/40 rounded-lg text-green-400">
             <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
             <span className="text-sm font-medium">
-              Connected: {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Connected'}
+              Session Active: {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Connected'}
             </span>
             <button
               onClick={handleDisconnect}
@@ -254,6 +213,18 @@ const Index = () => {
             >
               Disconnect
             </button>
+          </div>
+        </div>
+      )}
+      
+      {/* Session Creation Status */}
+      {isConnecting && (
+        <div className="text-center mb-8 px-4">
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500/20 border border-blue-500/40 rounded-lg text-blue-400">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span className="text-sm font-medium">
+              Creating Cartridge Controller session...
+            </span>
           </div>
         </div>
       )}
@@ -306,7 +277,7 @@ const Index = () => {
                 {isConnecting ? (
                   <>
                     <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                    Connecting...
+                    Creating Session...
                   </>
                 ) : account ? (
                   <>
@@ -333,22 +304,7 @@ const Index = () => {
                   Refresh
                 </Button>
               )}
-              
-              {/* Manual continue button for navigation issues */}
-              {showManualContinue && (
-                <Button
-                  onClick={() => {
-                    console.log('🎯 Manual navigation triggered');
-                    setShowManualContinue(false);
-                    navigate('/game');
-                  }}
-                  size="lg"
-                  className="bg-green-600 hover:bg-green-700 text-white font-semibold px-8 py-4 text-lg"
-                >
-                  <ArrowRight className="mr-2 h-5 w-5" />
-                  Continue to Game
-                </Button>
-              )}
+
             </div>
           </div>
         </div>
