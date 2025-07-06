@@ -146,9 +146,9 @@ export const useRockPaperScissorsContract = () => {
   const [pendingMoveHash, setPendingMoveHash] = useState<string | null>(null);
   const [pendingSalt, setPendingSalt] = useState<string | null>(null);
 
-  // Create read-only provider for queries
-  const readProvider = new RpcProvider({ nodeUrl: PROVIDER_URL });
-  const readContract = new Contract(ABI, CONTRACT_ADDRESS, readProvider);
+  // Create read-only provider for queries (memoized to prevent re-renders)
+  const readProvider = useMemo(() => new RpcProvider({ nodeUrl: PROVIDER_URL }), []);
+  const readContract = useMemo(() => new Contract(ABI, CONTRACT_ADDRESS, readProvider), [readProvider]);
 
   // Helper function to get account from Cartridge Controller
   const getCartridgeAccount = useCallback(async () => {
@@ -309,13 +309,14 @@ export const useRockPaperScissorsContract = () => {
       
       setTimeout(pollForGame, 2000);
       
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('❌ Failed to join queue:', error);
       // More helpful error message
-      if (error.message?.includes('account') || error.message?.includes('Cartridge')) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      if (errorMessage.includes('account') || errorMessage.includes('Cartridge')) {
         setError('Cartridge Controller session issue - please refresh and try again');
       } else {
-        setError(error.message || 'Failed to join queue');
+        setError(errorMessage || 'Failed to join queue');
       }
     } finally {
       setIsLoading(false);
@@ -380,9 +381,10 @@ export const useRockPaperScissorsContract = () => {
         }
       }, 2000);
       
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('❌ Failed to submit move:', error);
-      setError(error.message || 'Failed to submit move');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      setError(errorMessage || 'Failed to submit move');
     } finally {
       setIsLoading(false);
     }
@@ -411,9 +413,10 @@ export const useRockPaperScissorsContract = () => {
       
       console.log('✅ Game forfeited locally');
       
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('❌ Failed to forfeit game:', error);
-      setError(error.message || 'Failed to forfeit game');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      setError(errorMessage || 'Failed to forfeit game');
     } finally {
       setIsLoading(false);
     }
@@ -446,9 +449,10 @@ export const useRockPaperScissorsContract = () => {
       
       console.log('✅ Prize claimed successfully');
       
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('❌ Failed to claim prize:', error);
-      setError(error.message || 'Failed to claim prize');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      setError(errorMessage || 'Failed to claim prize');
     } finally {
       setIsLoading(false);
     }

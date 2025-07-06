@@ -63,7 +63,8 @@ const Index = () => {
     isConnected,
     isConnecting,
     isLoading,
-    hasControllerConnector: !!controllerConnector
+    hasControllerConnector: !!controllerConnector,
+    status
   });
 
   // Auto-navigate when account becomes available
@@ -81,6 +82,7 @@ const Index = () => {
         console.log('🔄 Resetting connecting state...');
         setIsConnecting(false);
       }
+      console.log('🚀 Navigating to game page...');
       navigate('/game');
     }
   }, [account, navigate, isConnecting]);
@@ -110,7 +112,7 @@ const Index = () => {
     fetchStrkPrice();
   }, []);
 
-  // Simple connection handler as suggested
+  // Simplified connection handler following Cartridge best practices
   const handlePlayClick = useCallback(async () => {
     console.log('🎮 handlePlayClick called');
     console.log('🔍 Current state before connect:', {
@@ -139,57 +141,22 @@ const Index = () => {
       await connect({ connector: controllerConnector });
       console.log('✅ Connect call completed');
       
-      // Wait a moment for state to update
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Success! Connection process is complete
+      // The useEffect watching for account changes will handle navigation
+      console.log('🎯 Connection successful, useEffect will handle navigation when account becomes available');
       
-      console.log('🔍 State after connect + delay:', {
-        account: !!account,
-        address: account?.address,
-        isConnected,
-        status,
-        connectorAccount: controllerConnector?.account,
-      });
-      
-      // Reset connecting state after successful connect
-      setIsConnecting(false);
-      
-      // Check if account is immediately available
-      if (account) {
-        console.log('🎯 Account available immediately after connect, navigating...');
-        navigate('/game');
-      } else {
-        console.log('⏳ Account not immediately available, will poll for account...');
-        
-        // Start polling for account availability
-        let pollCount = 0;
-        const maxPolls = 20; // 10 seconds at 500ms intervals
-        
-        const pollForAccount = async () => {
-          pollCount++;
-          console.log(`🔄 Polling for account (${pollCount}/${maxPolls})...`);
-          
-          // Check if account is now available
-          if (account) {
-            console.log('🎯 Account detected during polling! Navigating...');
-            navigate('/game');
-            return;
-          }
-          
-          if (pollCount < maxPolls) {
-            setTimeout(pollForAccount, 500);
-          } else {
-            console.log('⏰ Account polling timeout - account never became available');
-            toast({
-              title: "Session Created",
-              description: "Session was created but account detection timed out. Try refreshing the page.",
-              variant: "default",
-            });
-          }
-        };
-        
-        // Start polling after a short delay
-        setTimeout(pollForAccount, 500);
-      }
+      // Fallback timeout in case useEffect doesn't trigger (should not be needed)
+      setTimeout(() => {
+        if (isConnecting) {
+          console.log('⏰ Timeout fallback - resetting connecting state');
+          setIsConnecting(false);
+          toast({
+            title: "Session Created",
+            description: "Session was created. If you're not redirected automatically, try refreshing the page.",
+            variant: "default",
+          });
+        }
+      }, 10000);
       
     } catch (error) {
       console.error('❌ Connection failed:', error);
@@ -200,7 +167,7 @@ const Index = () => {
         variant: "destructive",
       });
     }
-  }, [account, controllerConnector, connect, navigate, toast, isConnected, status]);
+  }, [account, controllerConnector, connect, navigate, toast, isConnected, isConnecting]);
 
   const handleDisconnect = async () => {
     try {
@@ -211,7 +178,7 @@ const Index = () => {
         title: "Disconnected",
         description: "Successfully disconnected from wallet",
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('❌ Failed to disconnect:', error);
       toast({
         title: "Disconnect Failed",

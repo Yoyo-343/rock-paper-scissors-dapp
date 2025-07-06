@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import tailwindcssAnimate from "tailwindcss-animate";
 
 export default {
 	darkMode: ["class"],
@@ -169,7 +170,6 @@ export default {
 				'float-9': {
 					'0%': { transform: 'translateY(0) rotate(0deg)', opacity: '0' },
 					'50%': { opacity: '1' },
-					'50%': { opacity: '1' },
 					'100%': { transform: 'translateY(-110vh) rotate(45deg)', opacity: '0' }
 				},
 				'float-10': {
@@ -240,5 +240,5 @@ export default {
 			}
 		}
 	},
-	plugins: [require("tailwindcss-animate")],
+	plugins: [tailwindcssAnimate],
 } satisfies Config;
