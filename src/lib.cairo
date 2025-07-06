@@ -1,5 +1,14 @@
 use starknet::ContractAddress;
 
+// STRK Token Interface (ERC20)
+#[starknet::interface]
+trait IERC20<TContractState> {
+    fn transfer(ref self: TContractState, recipient: ContractAddress, amount: u256) -> bool;
+    fn transfer_from(ref self: TContractState, sender: ContractAddress, recipient: ContractAddress, amount: u256) -> bool;
+    fn balance_of(self: @TContractState, account: ContractAddress) -> u256;
+    fn approve(ref self: TContractState, spender: ContractAddress, amount: u256) -> bool;
+}
+
 // Manual Pragma Oracle Interface (to avoid dependency conflicts)
 #[derive(Drop, Serde)]
 struct PragmaPricesResponse {
@@ -31,10 +40,11 @@ pub trait IRockPaperScissorsGame<TContractState> {
     
     // View functions
     fn get_required_entry_fee(self: @TContractState) -> u256;
-    fn get_current_eth_price(self: @TContractState) -> u128;
+    fn get_current_strk_price(self: @TContractState) -> u128;
     fn get_game_info(self: @TContractState, game_id: u256) -> (ContractAddress, ContractAddress, u8, u8, u8, u64, u256, ContractAddress);
     fn is_player_in_game(self: @TContractState, player: ContractAddress) -> bool;
     fn get_queue_length(self: @TContractState) -> u32;
+    fn get_total_games_played(self: @TContractState) -> u256;
     
     // Admin functions
     fn withdraw_treasury(ref self: TContractState, amount: u256);
@@ -45,10 +55,10 @@ pub trait IRockPaperScissorsGame<TContractState> {
 pub mod RockPaperScissorsGame {
     use starknet::ContractAddress;
     use starknet::storage::{Map, StorageMapReadAccess, StorageMapWriteAccess, StoragePointerReadAccess, StoragePointerWriteAccess};
-    use starknet::{get_caller_address, get_block_timestamp};
+    use starknet::{get_caller_address, get_block_timestamp, get_contract_address};
     use core::hash::HashStateTrait;
     use core::poseidon::PoseidonTrait;
-    use super::{PragmaPricesResponse, DataType, IPragmaOracleDispatcher, IPragmaOracleDispatcherTrait};
+    use super::{PragmaPricesResponse, DataType, IPragmaOracleDispatcher, IPragmaOracleDispatcherTrait, IERC20Dispatcher, IERC20DispatcherTrait};
     
     // Constants
     const ROCK: u8 = 1;
@@ -66,12 +76,16 @@ pub mod RockPaperScissorsGame {
     const FORFEITED: u8 = 4;
     
     // Oracle constants
-    const ETH_USD_ASSET_ID: felt252 = 19514442401534788; // Pragma's ETH/USD pair ID
+    const STRK_USD_ASSET_ID: felt252 = 6004514686061859652; // Pragma's STRK/USD pair ID
+    
+    // STRK Token Contract Address (Sepolia Testnet)
+    const STRK_TOKEN_ADDRESS: felt252 = 0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d;
 
     #[storage]
     struct Storage {
         // Core game storage
         game_counter: u256,
+        total_games_played: u256,
         
         // Game info: separate maps for each field
         games_player1: Map<u256, ContractAddress>,
@@ -103,6 +117,7 @@ pub mod RockPaperScissorsGame {
         // Treasury and oracle
         treasury_balance: u256,
         pragma_oracle_address: ContractAddress, // Address of Pragma Oracle contract
+        strk_token_address: ContractAddress, // Address of STRK token contract
         
         // Admin controls
         owner: ContractAddress,
@@ -184,7 +199,9 @@ pub mod RockPaperScissorsGame {
     fn constructor(ref self: ContractState, owner: ContractAddress, pragma_oracle_address: ContractAddress) {
         self.owner.write(owner);
         self.pragma_oracle_address.write(pragma_oracle_address);
+        self.strk_token_address.write(STRK_TOKEN_ADDRESS.try_into().unwrap());
         self.game_counter.write(0);
+        self.total_games_played.write(0);
         self.emergency_paused.write(false);
         self.queue_length.write(0);
     }
@@ -196,9 +213,15 @@ pub mod RockPaperScissorsGame {
             assert(!self.emergency_paused.read(), 'Game is paused');
             
             let caller = get_caller_address();
+            let entry_fee = self.get_required_entry_fee();
             
             // Check if player is already in a game or queue
             assert(self.player_current_game.read(caller) == 0, 'Player already in game');
+            
+            // Transfer entry fee from player to contract
+            let strk_token = IERC20Dispatcher { contract_address: self.strk_token_address.read() };
+            let success = strk_token.transfer_from(caller, get_contract_address(), entry_fee);
+            assert(success, 'Entry fee transfer failed');
             
             let queue_len = self.queue_length.read();
             
@@ -326,7 +349,10 @@ pub mod RockPaperScissorsGame {
             // Mark prize as claimed
             self.games_prize_pool.write(game_id, 0);
             
-            // TODO: Transfer ETH to winner (requires ETH contract integration)
+            // Transfer STRK tokens to winner
+            let strk_token = IERC20Dispatcher { contract_address: self.strk_token_address.read() };
+            let success = strk_token.transfer(caller, prize_amount);
+            assert(success, 'Prize transfer failed');
             
             self.emit(Event::PrizeClaimed(
                 PrizeClaimed { game_id, winner: caller, amount: prize_amount }
@@ -334,19 +360,19 @@ pub mod RockPaperScissorsGame {
         }
         
         fn get_required_entry_fee(self: @ContractState) -> u256 {
-            let eth_price_usd = self._get_eth_price_from_oracle();
+            let strk_price_usd = self._get_strk_price_from_oracle();
             
-            // Calculate required wei for $1
+            // Calculate required STRK for $1
             // Oracle price has 8 decimals, we want $1 = 100000000 (8 decimals)
             let one_dollar_in_cents: u256 = 100000000; // $1 with 8 decimals
-            let eth_decimals: u256 = 1000000000000000000; // 10^18 wei per ETH
+            let strk_decimals: u256 = 1000000000000000000; // 10^18 STRK per token
             
-            // Calculate wei needed: ($1 * 10^18) / (ETH_price_in_USD * 10^8)
-            (one_dollar_in_cents * eth_decimals) / eth_price_usd.into()
+            // Calculate STRK needed: ($1 * 10^18) / (STRK_price_in_USD * 10^8)
+            (one_dollar_in_cents * strk_decimals) / strk_price_usd.into()
         }
         
-        fn get_current_eth_price(self: @ContractState) -> u128 {
-            self._get_eth_price_from_oracle()
+        fn get_current_strk_price(self: @ContractState) -> u128 {
+            self._get_strk_price_from_oracle()
         }
         
         fn get_game_info(self: @ContractState, game_id: u256) -> (ContractAddress, ContractAddress, u8, u8, u8, u64, u256, ContractAddress) {
@@ -370,6 +396,10 @@ pub mod RockPaperScissorsGame {
             self.queue_length.read()
         }
         
+        fn get_total_games_played(self: @ContractState) -> u256 {
+            self.total_games_played.read()
+        }
+        
         fn withdraw_treasury(ref self: ContractState, amount: u256) {
             let caller = get_caller_address();
             assert(caller == self.owner.read(), 'Only owner can withdraw');
@@ -379,7 +409,10 @@ pub mod RockPaperScissorsGame {
             
             self.treasury_balance.write(current_balance - amount);
             
-            // TODO: Transfer ETH to owner
+            // Transfer STRK tokens to owner
+            let strk_token = IERC20Dispatcher { contract_address: self.strk_token_address.read() };
+            let success = strk_token.transfer(caller, amount);
+            assert(success, 'Treasury withdrawal failed');
             
             self.emit(Event::TreasuryWithdrawal(
                 TreasuryWithdrawal { amount, recipient: caller }
@@ -399,6 +432,10 @@ pub mod RockPaperScissorsGame {
         fn _start_game(ref self: ContractState, player1: ContractAddress, player2: ContractAddress) {
             let game_id = self.game_counter.read() + 1;
             self.game_counter.write(game_id);
+            
+            // Increment total games played
+            let total_games = self.total_games_played.read() + 1;
+            self.total_games_played.write(total_games);
             
             let entry_fee = self.get_required_entry_fee();
             let total_prize_pool = entry_fee * 2;
@@ -520,14 +557,14 @@ pub mod RockPaperScissorsGame {
             hash_state.finalize()
         }
         
-        fn _get_eth_price_from_oracle(self: @ContractState) -> u128 {
+        fn _get_strk_price_from_oracle(self: @ContractState) -> u128 {
             let oracle_dispatcher = IPragmaOracleDispatcher {
                 contract_address: self.pragma_oracle_address.read()
             };
             
-            // Call the Pragma Oracle contract for ETH/USD spot price
+            // Call the Pragma Oracle contract for STRK/USD spot price
             let price_response: PragmaPricesResponse = oracle_dispatcher
-                .get_data_median(DataType::SpotEntry(ETH_USD_ASSET_ID));
+                .get_data_median(DataType::SpotEntry(STRK_USD_ASSET_ID));
             
             price_response.price
         }

@@ -20,17 +20,11 @@ const Index = () => {
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
   
-  // Find controller connector directly to avoid initialization issues with fromConnectors
-  const controllerConnector = useMemo(() => {
-    const connector = connectors.find(connector => connector instanceof ControllerConnector);
-    console.log('🎮 Found controller connector:', {
-      connector: !!connector,
-      connectorId: connector?.id,
-      connectorName: connector?.name,
-      totalConnectors: connectors.length
-    });
-    return connector;
-  }, [connectors]);
+  // Find controller connector using the recommended approach
+  const controllerConnector = useMemo(
+    () => ControllerConnector.fromConnectors(connectors),
+    [connectors],
+  );
   
   const { queueLength } = useRockPaperScissorsContract();
   const [isConnecting, setIsConnecting] = useState(false);
@@ -43,98 +37,25 @@ const Index = () => {
   const isLoading = status === 'connecting' || status === 'reconnecting';
 
   // Single console log to avoid spam
-  console.log('🔍 Wallet state:', { 
-    status, 
-    address: address?.slice(0, 10) + '...', 
-    isConnected, 
+  console.log('🔍 Component state:', {
+    account: !!account,
+    address: account?.address,
+    isConnected,
+    isConnecting,
     isLoading,
     hasControllerConnector: !!controllerConnector
   });
 
-  // Auto-navigate when connected during connection flow
+  // Auto-navigate when account becomes available
   useEffect(() => {
-    console.log('🔍 Connection state changed:', {
-      isConnecting,
-      account: !!account,
-      address: account?.address,
-      isConnected,
-      timestamp: new Date().toISOString()
-    });
-
-    if (isConnecting && account) {
-      console.log('🎯 Connected! Navigating to game...');
-      setIsConnecting(false);
+    if (account) {
+      console.log('🎯 Account available, navigating to game...');
+      if (isConnecting) {
+        setIsConnecting(false);
+      }
       navigate('/game');
     }
-  }, [account, isConnecting, navigate, isConnected]);
-
-  // Add timeout fallback for connection detection
-  useEffect(() => {
-    if (!isConnecting) return;
-
-    console.log('🕐 Setting up connection detection with polling...');
-    
-    // Poll for connection every 500ms for up to 30 seconds
-    let pollCount = 0;
-    const maxPolls = 60; // 30 seconds at 500ms intervals
-    
-    const pollForConnection = () => {
-      pollCount++;
-      console.log(`🔄 Polling for connection (${pollCount}/${maxPolls})...`, {
-        account: !!account,
-        address: account?.address,
-        isConnected
-      });
-
-      // If we detect account, navigate immediately
-      if (account) {
-        console.log('🎯 Account detected during polling! Navigating...');
-        setIsConnecting(false);
-        navigate('/game');
-        return;
-      }
-
-      // If we've reached max polls, show timeout options
-      if (pollCount >= maxPolls) {
-        console.log('⏰ Connection detection timeout reached');
-        setIsConnecting(false);
-        
-        toast({
-          title: "Connection Detection Timeout",
-          description: "If you created a session successfully, you can proceed manually or refresh the page.",
-        });
-
-        // Show manual navigation options after a short delay
-        setTimeout(() => {
-          const proceed = window.confirm(
-            "Did you successfully create a session in Cartridge Controller?\n\n" +
-            "Click OK to proceed to the game, or Cancel to refresh the page."
-          );
-          
-          if (proceed) {
-            console.log('🎯 User confirmed connection, navigating to game...');
-            navigate('/game');
-          } else {
-            console.log('🔄 User chose to refresh page...');
-            window.location.reload();
-          }
-        }, 1000);
-        
-        return;
-      }
-
-      // Continue polling
-      setTimeout(pollForConnection, 500);
-    };
-
-    // Start polling after a short delay
-    const pollTimeout = setTimeout(pollForConnection, 500);
-
-    return () => {
-      console.log('🧹 Cleaning up connection polling');
-      clearTimeout(pollTimeout);
-    };
-  }, [isConnecting, navigate, toast, account, isConnected]);
+  }, [account, navigate, isConnecting]);
 
   // Load STRK price on mount
   useEffect(() => {
@@ -161,130 +82,32 @@ const Index = () => {
     fetchStrkPrice();
   }, []);
 
+  // Simple connection handler as suggested
   const handlePlayClick = useCallback(async () => {
-    // If currently connecting, cancel the connection
-    if (isConnecting) {
-      console.log('🚫 User canceled connection');
-      setIsConnecting(false);
-      
-      // Force disconnect to clean up any stuck state
-      try {
-        await disconnect();
-        console.log('🔌 Forced disconnect to clean up stuck state');
-      } catch (error) {
-        console.log('⚠️ Force disconnect failed (may not be connected):', error);
-      }
-      
-      toast({
-        title: "Connection Canceled",
-        description: "Connection attempt canceled by user",
-      });
-      return;
-    }
-
     // If already connected, proceed directly to game
     if (account) {
-      console.log('🎯 Already connected, entering game...');
+      console.log('🎯 Already connected, navigating to game...');
       navigate('/game');
       return;
     }
 
-    // Otherwise connect
-    if (controllerConnector) {
-      console.log('🎮 Connecting to Cartridge Controller...');
-      console.log('🔍 Connector details:', {
-        id: controllerConnector.id,
-        name: controllerConnector.name,
-        available: controllerConnector.available,
-        ready: controllerConnector.ready
-      });
-      
-      // Check if controller is still initializing
-      if (!controllerConnector.ready) {
-        console.log('⏳ Controller not ready yet, waiting...');
-        toast({
-          title: "Controller Initializing",
-          description: "Please wait for the controller to finish initializing and try again.",
-        });
-        return;
-      }
-      
-      setIsConnecting(true);
-      
-      // Add a shorter timeout to prevent hanging
-      const connectTimeout = setTimeout(() => {
-        console.log('⏰ Connection timeout - resetting state');
-        setIsConnecting(false);
-        toast({
-          title: "Connection Timeout",
-          description: "Controller initialization timed out. Please refresh the page and try again.",
-          variant: "destructive",
-        });
-      }, 10000); // 10 second timeout instead of 15
-      
-      try {
-        console.log('🔗 Calling connect with controller...');
-        console.log('🔍 Pre-connect state:', {
-          account: !!account,
-          address: account?.address,
-          isConnected,
-          connectorReady: controllerConnector.ready,
-          connectorAvailable: controllerConnector.available
-        });
-        
-        // Try connecting with additional error context
-        const result = await connect({ connector: controllerConnector });
-        console.log('✅ Connect call completed, result:', result);
-        console.log('🔍 Post-connect state:', {
-          account: !!account,
-          address: account?.address,
-          isConnected,
-          connectCallCompleted: true
-        });
-        
-        // Clear timeout since connection succeeded
-        clearTimeout(connectTimeout);
-        
-        // If account is already available, navigate immediately
-        if (account) {
-          console.log('🎯 Account available immediately, navigating...');
-          setIsConnecting(false);
-          navigate('/game');
-        } else {
-          console.log('⏳ Account not immediately available, waiting for polling...');
-        }
-        // Otherwise useEffect will handle navigation when account becomes available
-        
-      } catch (error) {
-        console.error('❌ Connection failed:', error);
-        clearTimeout(connectTimeout);
-        setIsConnecting(false);
-        
-        // More specific error handling
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        console.log('🔍 Error details:', { 
-          errorMessage, 
-          errorType: typeof error, 
-          error: error,
-          stack: error instanceof Error ? error.stack : undefined
-        });
-        
-        toast({
-          title: "Connection Error", 
-          description: `Failed to connect: ${errorMessage}. Try refreshing the page.`,
-          variant: "destructive",
-        });
-      }
-    } else {
-      console.error('❌ No controller connector found');
-      console.log('🔍 Available connectors:', connectors.map(c => ({ id: c.id, name: c.name })));
+    // Otherwise popup controller
+    console.log('🎮 Opening Cartridge Controller...');
+    setIsConnecting(true);
+    
+    try {
+      await connect({ connector: controllerConnector });
+      console.log('✅ Connect call completed');
+    } catch (error) {
+      console.error('❌ Connection failed:', error);
+      setIsConnecting(false);
       toast({
         title: "Connection Error",
-        description: "Cartridge Controller not available. Please refresh the page.",
+        description: "Failed to connect to Cartridge Controller. Please try again.",
         variant: "destructive",
       });
     }
-  }, [account, controllerConnector, connect, navigate, toast, isConnecting, disconnect, connectors]);
+  }, [account, controllerConnector, connect, navigate, toast]);
 
   const handleDisconnect = async () => {
     try {
