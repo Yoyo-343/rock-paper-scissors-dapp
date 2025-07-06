@@ -48,9 +48,17 @@ const Index = () => {
 
   // Auto-navigate when account becomes available
   useEffect(() => {
+    console.log('🔍 Account state changed:', {
+      account: !!account,
+      address: account?.address,
+      isConnecting,
+      timestamp: new Date().toISOString()
+    });
+    
     if (account) {
       console.log('🎯 Account available, navigating to game...');
       if (isConnecting) {
+        console.log('🔄 Resetting connecting state...');
         setIsConnecting(false);
       }
       navigate('/game');
@@ -98,6 +106,18 @@ const Index = () => {
     try {
       await connect({ connector: controllerConnector });
       console.log('✅ Connect call completed');
+      
+      // Reset connecting state after successful connect
+      setIsConnecting(false);
+      
+      // Check if account is immediately available
+      if (account) {
+        console.log('🎯 Account available immediately after connect, navigating...');
+        navigate('/game');
+      } else {
+        console.log('⏳ Account not immediately available, useEffect will handle navigation...');
+      }
+      
     } catch (error) {
       console.error('❌ Connection failed:', error);
       setIsConnecting(false);
