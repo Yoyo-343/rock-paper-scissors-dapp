@@ -53,12 +53,88 @@ const Index = () => {
 
   // Auto-navigate when connected during connection flow
   useEffect(() => {
+    console.log('🔍 Connection state changed:', {
+      isConnecting,
+      account: !!account,
+      address: account?.address,
+      isConnected,
+      timestamp: new Date().toISOString()
+    });
+
     if (isConnecting && account) {
       console.log('🎯 Connected! Navigating to game...');
       setIsConnecting(false);
       navigate('/game');
     }
-  }, [account, isConnecting, navigate]);
+  }, [account, isConnecting, navigate, isConnected]);
+
+  // Add timeout fallback for connection detection
+  useEffect(() => {
+    if (!isConnecting) return;
+
+    console.log('🕐 Setting up connection detection with polling...');
+    
+    // Poll for connection every 500ms for up to 30 seconds
+    let pollCount = 0;
+    const maxPolls = 60; // 30 seconds at 500ms intervals
+    
+    const pollForConnection = () => {
+      pollCount++;
+      console.log(`🔄 Polling for connection (${pollCount}/${maxPolls})...`, {
+        account: !!account,
+        address: account?.address,
+        isConnected
+      });
+
+      // If we detect account, navigate immediately
+      if (account) {
+        console.log('🎯 Account detected during polling! Navigating...');
+        setIsConnecting(false);
+        navigate('/game');
+        return;
+      }
+
+      // If we've reached max polls, show timeout options
+      if (pollCount >= maxPolls) {
+        console.log('⏰ Connection detection timeout reached');
+        setIsConnecting(false);
+        
+        toast({
+          title: "Connection Detection Timeout",
+          description: "If you created a session successfully, you can proceed manually or refresh the page.",
+        });
+
+        // Show manual navigation options after a short delay
+        setTimeout(() => {
+          const proceed = window.confirm(
+            "Did you successfully create a session in Cartridge Controller?\n\n" +
+            "Click OK to proceed to the game, or Cancel to refresh the page."
+          );
+          
+          if (proceed) {
+            console.log('🎯 User confirmed connection, navigating to game...');
+            navigate('/game');
+          } else {
+            console.log('🔄 User chose to refresh page...');
+            window.location.reload();
+          }
+        }, 1000);
+        
+        return;
+      }
+
+      // Continue polling
+      setTimeout(pollForConnection, 500);
+    };
+
+    // Start polling after a short delay
+    const pollTimeout = setTimeout(pollForConnection, 500);
+
+    return () => {
+      console.log('🧹 Cleaning up connection polling');
+      clearTimeout(pollTimeout);
+    };
+  }, [isConnecting, navigate, toast, account, isConnected]);
 
   // Load STRK price on mount
   useEffect(() => {
@@ -148,10 +224,23 @@ const Index = () => {
       
       try {
         console.log('🔗 Calling connect with controller...');
+        console.log('🔍 Pre-connect state:', {
+          account: !!account,
+          address: account?.address,
+          isConnected,
+          connectorReady: controllerConnector.ready,
+          connectorAvailable: controllerConnector.available
+        });
         
         // Try connecting with additional error context
         const result = await connect({ connector: controllerConnector });
         console.log('✅ Connect call completed, result:', result);
+        console.log('🔍 Post-connect state:', {
+          account: !!account,
+          address: account?.address,
+          isConnected,
+          connectCallCompleted: true
+        });
         
         // Clear timeout since connection succeeded
         clearTimeout(connectTimeout);
@@ -161,6 +250,8 @@ const Index = () => {
           console.log('🎯 Account available immediately, navigating...');
           setIsConnecting(false);
           navigate('/game');
+        } else {
+          console.log('⏳ Account not immediately available, waiting for polling...');
         }
         // Otherwise useEffect will handle navigation when account becomes available
         
