@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Zap, Shield, Trophy, Play, RefreshCw, Loader2 } from 'lucide-react';
+import { Zap, Shield, Trophy, Play, RefreshCw, Loader2, ArrowRight } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from 'react-router-dom';
 import { useAccount, useConnect, useDisconnect } from '@starknet-react/core';
@@ -48,6 +48,7 @@ const Index = () => {
   
   const { queueLength } = useRockPaperScissorsContract();
   const [isConnecting, setIsConnecting] = useState(false);
+  const [showManualContinue, setShowManualContinue] = useState(false);
   const [strkPrice, setStrkPrice] = useState<number | null>(null);
   const [isLoadingPrice, setIsLoadingPrice] = useState(true);
   const [entryFeeStrk, setEntryFeeStrk] = useState<string>("0");
@@ -83,12 +84,16 @@ const Index = () => {
         console.log('🔄 Resetting connecting state...');
         setIsConnecting(false);
       }
+      if (showManualContinue) {
+        console.log('🔄 Resetting manual continue button...');
+        setShowManualContinue(false);
+      }
       console.log('🚀 Navigating to game page...');
       navigate('/game');
     }
-  }, [account, navigate, isConnecting, status]);
+  }, [account, navigate, isConnecting, status, showManualContinue]);
 
-  // Enhanced navigation fallback for cases where useEffect might not trigger
+  // Enhanced navigation fallback with manual option
   useEffect(() => {
     if (isConnecting && !account) {
       console.log('📊 Starting connection monitoring...');
@@ -99,6 +104,7 @@ const Index = () => {
           address: account?.address,
           status,
           isConnecting,
+          isConnected,
           timestamp: new Date().toISOString()
         });
         
@@ -110,24 +116,25 @@ const Index = () => {
         }
       }, 1000);
       
-      // Clear interval after 12 seconds
+      // Clear interval after 10 seconds and show manual option
       const timeoutId = setTimeout(() => {
-        console.log('⏰ Connection monitoring timeout');
+        console.log('⏰ Connection monitoring timeout - showing manual navigation option');
         clearInterval(checkConnection);
         setIsConnecting(false);
+        setShowManualContinue(true);
         toast({
-          title: "Navigation Issue",
-          description: "Please try refreshing the page if you're not redirected to the game.",
+          title: "Session Created Successfully",
+          description: "Use the 'Continue to Game' button below to proceed.",
           variant: "default",
         });
-      }, 12000);
+      }, 10000);
       
       return () => {
         clearInterval(checkConnection);
         clearTimeout(timeoutId);
       };
     }
-  }, [isConnecting, account, navigate, status, toast]);
+  }, [isConnecting, account, navigate, status, toast, isConnected]);
 
   // Load STRK price on mount
   useEffect(() => {
@@ -324,6 +331,22 @@ const Index = () => {
                 >
                   <RefreshCw className="mr-2 h-5 w-5" />
                   Refresh
+                </Button>
+              )}
+              
+              {/* Manual continue button for navigation issues */}
+              {showManualContinue && (
+                <Button
+                  onClick={() => {
+                    console.log('🎯 Manual navigation triggered');
+                    setShowManualContinue(false);
+                    navigate('/game');
+                  }}
+                  size="lg"
+                  className="bg-green-600 hover:bg-green-700 text-white font-semibold px-8 py-4 text-lg"
+                >
+                  <ArrowRight className="mr-2 h-5 w-5" />
+                  Continue to Game
                 </Button>
               )}
             </div>
