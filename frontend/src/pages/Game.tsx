@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Trophy, Zap } from 'lucide-react';
+import { useAccount } from '@starknet-react/core';
 import { useRockPaperScissorsContract } from '../hooks/useRockPaperScissorsContract';
 
 // Components
@@ -18,6 +19,7 @@ import { Move } from '../hooks/useRockPaperScissorsContract';
 
 const Game = () => {
   const navigate = useNavigate();
+  const { account, address } = useAccount();
   
   const {
     gameStatus,
@@ -52,19 +54,33 @@ const Game = () => {
     navigate('/');
   };
 
-  // Enhanced auto-join logic with better error handling
+  // Session validation - redirect to homepage if no account
   useEffect(() => {
-    if (gameStatus === 'idle' && !error) {
-      console.log('🎮 Auto-joining queue when game loads...');
-      // Small delay to ensure Cartridge Controller is ready
+    if (!account) {
+      console.log('❌ No Cartridge session detected, redirecting to homepage...');
+      navigate('/', { replace: true });
+      return;
+    }
+    
+    console.log('✅ Cartridge session detected:', {
+      account: !!account,
+      address: account?.address,
+    });
+  }, [account, navigate]);
+
+  // Enhanced auto-join logic - only join if account exists
+  useEffect(() => {
+    if (account && gameStatus === 'idle' && !error) {
+      console.log('🎮 Account available, auto-joining queue...');
+      // Small delay to ensure everything is ready
       const timer = setTimeout(() => {
-        console.log('🎮 Attempting to join queue...');
+        console.log('🎮 Attempting to join matchmaking queue...');
         joinQueue();
-      }, 1000); // Increased delay to give Cartridge Controller time to initialize
+      }, 1500); // Slightly longer delay for stability
       
       return () => clearTimeout(timer);
     }
-  }, [gameStatus, joinQueue, error]);
+  }, [account, gameStatus, joinQueue, error]);
 
   // Debug logging
   useEffect(() => {
@@ -92,15 +108,27 @@ const Game = () => {
               <div className="inline-flex flex-col items-center gap-4 px-6 py-4 bg-red-500/20 border border-red-500/40 rounded-lg text-red-400 max-w-md mx-auto">
                 <span className="text-sm font-medium">Error: {error}</span>
                 <div className="flex gap-2">
-                  <button
-                    onClick={() => {
-                      console.log('🔄 Manual retry - attempting to join queue...');
-                      joinQueue();
-                    }}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded font-medium"
-                  >
-                    Try Again
-                  </button>
+                  {account ? (
+                    <button
+                      onClick={() => {
+                        console.log('🔄 Manual retry - attempting to join queue...');
+                        joinQueue();
+                      }}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded font-medium"
+                    >
+                      Try Again
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        console.log('🏠 No session - redirecting to homepage...');
+                        navigate('/', { replace: true });
+                      }}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded font-medium"
+                    >
+                      Create Session
+                    </button>
+                  )}
                   <button
                     onClick={() => window.location.reload()}
                     className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white text-sm rounded font-medium"
@@ -210,8 +238,17 @@ const Game = () => {
             <div className="text-center">
               <div className="animate-pulse">
                 <div className="w-16 h-16 border-4 border-cyber-blue/30 border-t-cyber-blue rounded-full animate-spin mx-auto mb-4" />
-                <h2 className="text-2xl font-bold text-cyber-blue mb-2">Initializing...</h2>
-                <p className="text-muted-foreground">Connecting to the game...</p>
+                <h2 className="text-2xl font-bold text-cyber-blue mb-2">
+                  {account ? 'Joining Matchmaking...' : 'Checking Session...'}
+                </h2>
+                <p className="text-muted-foreground">
+                  {account ? 'Connecting to the game queue...' : 'Validating Cartridge Controller session...'}
+                </p>
+                {account && (
+                  <p className="text-xs text-cyber-blue/70 mt-2">
+                    Session: {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Connected'}
+                  </p>
+                )}
               </div>
             </div>
           )}

@@ -305,6 +305,13 @@ export const useRockPaperScissorsContract = () => {
       setIsLoading(true);
       setError(null);
       console.log('🎮 Joining matchmaking queue...');
+
+      // Check if user has an address (session) first
+      if (!address) {
+        throw new Error('No active Cartridge Controller session. Please return to homepage and create a session first.');
+      }
+      
+      console.log('✅ Session validated, address:', address);
       
       // Get account directly from Cartridge Controller
       const account = await getCartridgeAccount();
