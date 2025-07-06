@@ -88,6 +88,47 @@ const Index = () => {
     }
   }, [account, navigate, isConnecting, status]);
 
+  // Enhanced navigation fallback for cases where useEffect might not trigger
+  useEffect(() => {
+    if (isConnecting && !account) {
+      console.log('📊 Starting connection monitoring...');
+      
+      const checkConnection = setInterval(() => {
+        console.log('🔍 Interval check:', {
+          hasAccount: !!account,
+          address: account?.address,
+          status,
+          isConnecting,
+          timestamp: new Date().toISOString()
+        });
+        
+        if (account) {
+          console.log('🎯 Account detected via interval check! Navigating...');
+          setIsConnecting(false);
+          navigate('/game');
+          clearInterval(checkConnection);
+        }
+      }, 1000);
+      
+      // Clear interval after 12 seconds
+      const timeoutId = setTimeout(() => {
+        console.log('⏰ Connection monitoring timeout');
+        clearInterval(checkConnection);
+        setIsConnecting(false);
+        toast({
+          title: "Navigation Issue",
+          description: "Please try refreshing the page if you're not redirected to the game.",
+          variant: "default",
+        });
+      }, 12000);
+      
+      return () => {
+        clearInterval(checkConnection);
+        clearTimeout(timeoutId);
+      };
+    }
+  }, [isConnecting, account, navigate, status, toast]);
+
   // Load STRK price on mount
   useEffect(() => {
     const fetchStrkPrice = async () => {
@@ -142,41 +183,8 @@ const Index = () => {
       const connectResult = await connect({ connector: controllerConnector });
       console.log('✅ Connect call completed, result:', connectResult);
       
-      // Wait a bit for account state to update and check if it's available
-      console.log('⏳ Waiting for account state to update...');
-      
-      let attempts = 0;
-      const maxAttempts = 20; // 10 seconds total
-      
-      const checkAccount = () => {
-        attempts++;
-        console.log(`🔍 Account check attempt ${attempts}:`, {
-          account: !!account,
-          address: account?.address,
-          status,
-          hasAccount: !!account
-        });
-        
-        if (account) {
-          console.log('🎯 Account detected! Navigation should happen via useEffect');
-          setIsConnecting(false);
-          return;
-        }
-        
-        if (attempts < maxAttempts) {
-          setTimeout(checkAccount, 500);
-        } else {
-          console.log('⏰ Account detection timeout - manual navigation fallback');
-          setIsConnecting(false);
-          toast({
-            title: "Connection Timeout",
-            description: "Session may have been created but account detection timed out. Try refreshing the page.",
-            variant: "destructive",
-          });
-        }
-      };
-      
-      setTimeout(checkAccount, 500);
+      // Success! Let useEffect handle navigation when account becomes available
+      console.log('🎯 Connection call completed - waiting for account to become available...');
       
     } catch (error) {
       console.error('❌ Connection failed:', error);
