@@ -1,125 +1,137 @@
-import { useState, useEffect } from 'react';
-import { useAccount, useContract } from '@starknet-react/core';
-import { CallData } from 'starknet';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Contract, RpcProvider, CallData, shortString, uint256 } from 'starknet';
+import { useAccount, useConnect } from '@starknet-react/core';
+import { ControllerConnector } from '@cartridge/connector';
 
-const RPS_CONTRACT_ADDRESS = "0x0638e6d45d476e71044f8e8d7119f6158748bf5bd56018e2f9275c96499c52b9";
-
-// Basic ABI for the Rock Paper Scissors contract
-const RPS_ABI = [
-  {
-    name: 'join_queue',
-    type: 'function',
-    inputs: [],
-    outputs: [],
-    state_mutability: 'external'
-  },
-  {
-    name: 'commit_move',
-    type: 'function',
-    inputs: [
-      { name: 'commitment', type: 'felt' }
-    ],
-    outputs: [],
-    state_mutability: 'external'
-  },
-  {
-    name: 'reveal_move',
-    type: 'function',
-    inputs: [
-      { name: 'move', type: 'felt' },
-      { name: 'nonce', type: 'felt' }
-    ],
-    outputs: [],
-    state_mutability: 'external'
-  },
-  {
-    name: 'claim_prize',
-    type: 'function',
-    inputs: [],
-    outputs: [],
-    state_mutability: 'external'
-  },
-  {
-    name: 'get_game_info',
-    type: 'function',
-    inputs: [
-      { name: 'game_id', type: 'felt' }
-    ],
-    outputs: [
-      { name: 'player1', type: 'felt' },
-      { name: 'player2', type: 'felt' },
-      { name: 'status', type: 'felt' }
-    ],
-    state_mutability: 'view'
-  }
-] as const;
-
-// Entry fee: 0.0005 ETH in wei (500000000000000 wei)
-const ENTRY_FEE_WEI = '500000000000000';
-
-// Timeout for opponent moves (in seconds)
-const MOVE_TIMEOUT_SECONDS = 30; // 30 seconds
-
+// Game types
 export type Move = 'rock' | 'paper' | 'scissors';
-export type GameStatus = 'idle' | 'in_queue' | 'matched' | 'committing' | 'revealing' | 'round_result' | 'completed' | 'timeout_win';
+export type Winner = 'player' | 'opponent' | 'draw';
+export type GameStatus = 'idle' | 'queue' | 'waiting_for_opponent' | 'selecting_move' | 'waiting_for_reveal' | 'round_result' | 'game_complete';
 
-const moveToNumber = (move: Move): number => {
-  switch (move) {
-    case 'rock': return 1;
-    case 'paper': return 2;
-    case 'scissors': return 3;
-    default: return 0;
+// Contract configuration
+const CONTRACT_ADDRESS = "0x0638e6d45d476e71044f8e8d7119f6158748bf5bd56018e2f9275c96499c52b9";
+const PROVIDER_URL = "https://starknet-sepolia.public.blastapi.io/rpc/v0_7";
+
+// Move timeout in seconds (2 minutes)
+export const MOVE_TIMEOUT_SECONDS = 120;
+
+// Real ABI for the Rock Paper Scissors contract
+const ABI = [
+  {
+    "name": "join_queue",
+    "type": "function",
+    "inputs": [],
+    "outputs": [],
+    "state_mutability": "external"
+  },
+  {
+    "name": "commit_move",
+    "type": "function",
+    "inputs": [
+      {"name": "game_id", "type": "core::integer::u256"},
+      {"name": "round", "type": "core::integer::u8"},
+      {"name": "move_hash", "type": "core::felt252"}
+    ],
+    "outputs": [],
+    "state_mutability": "external"
+  },
+  {
+    "name": "reveal_move",
+    "type": "function",
+    "inputs": [
+      {"name": "game_id", "type": "core::integer::u256"},
+      {"name": "round", "type": "core::integer::u8"},
+      {"name": "move", "type": "core::integer::u8"},
+      {"name": "salt", "type": "core::felt252"}
+    ],
+    "outputs": [],
+    "state_mutability": "external"
+  },
+  {
+    "name": "claim_prize",
+    "type": "function",
+    "inputs": [
+      {"name": "game_id", "type": "core::integer::u256"}
+    ],
+    "outputs": [],
+    "state_mutability": "external"
+  },
+  {
+    "name": "get_game_info",
+    "type": "function",
+    "inputs": [
+      {"name": "game_id", "type": "core::integer::u256"}
+    ],
+    "outputs": [
+      {"type": "(core::starknet::contract_address::ContractAddress, core::starknet::contract_address::ContractAddress, core::integer::u8, core::integer::u8, core::integer::u8, core::integer::u64, core::integer::u256, core::starknet::contract_address::ContractAddress)"}
+    ],
+    "state_mutability": "view"
+  },
+  {
+    "name": "is_player_in_game",
+    "type": "function",
+    "inputs": [
+      {"name": "player", "type": "core::starknet::contract_address::ContractAddress"}
+    ],
+    "outputs": [
+      {"type": "core::bool"}
+    ],
+    "state_mutability": "view"
+  },
+  {
+    "name": "get_queue_length",
+    "type": "function",
+    "inputs": [],
+    "outputs": [
+      {"type": "core::integer::u32"}
+    ],
+    "state_mutability": "view"
+  },
+  {
+    "name": "get_total_games_played",
+    "type": "function",
+    "inputs": [],
+    "outputs": [
+      {"type": "core::integer::u256"}
+    ],
+    "state_mutability": "view"
   }
-};
+];
 
-// Determine round winner
-const determineWinner = (playerMove: Move, opponentMove: Move): 'player' | 'opponent' | 'tie' => {
-  if (playerMove === opponentMove) return 'tie';
-  
-  const winConditions = {
-    rock: 'scissors',
-    paper: 'rock', 
-    scissors: 'paper'
-  };
-  
-  return winConditions[playerMove] === opponentMove ? 'player' : 'opponent';
-};
+// Move encoding for contract calls
+const MOVE_ENCODING = {
+  'rock': 1,
+  'paper': 2,
+  'scissors': 3
+} as const;
 
-// Generate random opponent move
-const generateOpponentMove = (): Move => {
-  const moves: Move[] = ['rock', 'paper', 'scissors'];
-  return moves[Math.floor(Math.random() * moves.length)];
-};
-
-// Generate a commitment hash for commit-reveal scheme
-const generateCommitment = (move: Move, nonce: string): string => {
-  const moveNum = moveToNumber(move);
-  return `0x${(BigInt(moveNum) + BigInt(nonce)).toString(16)}`;
-};
-
-// Generate random nonce
-const generateNonce = (): string => {
-  return Math.floor(Math.random() * 1000000).toString();
-};
-
-// Format address for display
-const formatAddress = (address: string): string => {
-  if (!address || address === '0x0') return 'Unknown';
-  return `${address.slice(0, 6)}...${address.slice(-4)}`;
-};
+const MOVE_DECODING = {
+  1: 'rock',
+  2: 'paper',
+  3: 'scissors'
+} as const;
 
 export const useRockPaperScissorsContract = () => {
-  const { account, address, status } = useAccount();
-  const { contract } = useContract({
-    abi: RPS_ABI,
-    address: RPS_CONTRACT_ADDRESS,
-  });
+  // Get connectors to access Cartridge Controller directly
+  const { connectors } = useConnect();
+  const { address } = useAccount(); // Still use this for address
   
+  // Find the Cartridge Controller - use stable approach to avoid initialization issues
+  const cartridgeConnector = useMemo(() => {
+    const connector = connectors.find(connector => connector instanceof ControllerConnector);
+    console.log('🔍 Contract hook found controller:', {
+      connector: !!connector,
+      connectorId: connector?.id,
+      connectorName: connector?.name
+    });
+    return connector;
+  }, [connectors]);
+  
+  // Game state
   const [gameStatus, setGameStatus] = useState<GameStatus>('idle');
-  const [currentGameId, setCurrentGameId] = useState<string>('0');
+  const [currentGameId, setCurrentGameId] = useState<string | null>(null);
   const [queueLength, setQueueLength] = useState<number>(0);
   const [playerMove, setPlayerMove] = useState<Move | null>(null);
-  const [playerNonce, setPlayerNonce] = useState<string>('');
   const [opponentAddress, setOpponentAddress] = useState<string>('');
   const [opponentName, setOpponentName] = useState<string>('');
   const [opponentMove, setOpponentMove] = useState<Move | null>(null);
@@ -127,433 +139,322 @@ export const useRockPaperScissorsContract = () => {
   const [playerWins, setPlayerWins] = useState<number>(0);
   const [opponentWins, setOpponentWins] = useState<number>(0);
   const [currentRound, setCurrentRound] = useState<number>(1);
-  const [lastRoundWinner, setLastRoundWinner] = useState<'player' | 'opponent' | 'tie' | null>(null);
-  const [gameWinner, setGameWinner] = useState<'player' | 'opponent' | 'timeout' | null>(null);
-  const [timeoutReason, setTimeoutReason] = useState<string>('');
+  const [lastRoundWinner, setLastRoundWinner] = useState<Winner | null>(null);
+  const [gameWinner, setGameWinner] = useState<Winner | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pendingMoveHash, setPendingMoveHash] = useState<string | null>(null);
+  const [pendingSalt, setPendingSalt] = useState<string | null>(null);
 
-  // Real queue length polling
-  useEffect(() => {
-    const interval = setInterval(() => {
-      // In a real implementation, this would call a contract view function
-      // For now, we'll simulate realistic queue numbers
-      setQueueLength(Math.floor(Math.random() * 3) + 1);
-    }, 5000);
-    return () => clearInterval(interval);
-  }, []);
+  // Create read-only provider for queries
+  const readProvider = new RpcProvider({ nodeUrl: PROVIDER_URL });
+  const readContract = new Contract(ABI, CONTRACT_ADDRESS, readProvider);
 
-  // Auto-reveal when both players have committed (simulation of both players completing their moves)
-  useEffect(() => {
-    if (gameStatus === 'revealing' && playerMove && playerNonce) {
-      console.log('🔄 Auto-revealing moves after both players committed...');
-      
-      // Add chance for opponent timeout during reveal phase (10% chance)
-      const opponentTimeoutChance = Math.random();
-      if (opponentTimeoutChance < 0.1) {
-        console.log('⏰ Opponent timed out during reveal phase!');
-        setTimeout(() => {
-          setGameWinner('player');
-          setTimeoutReason('Your opponent ran out of time to reveal their move');
-          setGameStatus('timeout_win');
-          console.log('🏆 Player wins by opponent timeout!');
-        }, 8000); // 8 seconds delay to simulate opponent thinking time
-        return;
-      }
-      
-      const revealTimer = setTimeout(() => {
-        console.log('⚡ Triggering auto-reveal...');
-        // Call handleRevealMove directly to avoid dependency issues
-        if (!playerMove || !playerNonce) return;
-        
-        setIsLoading(true);
-        setError(null);
-        
-        const doReveal = async () => {
-          try {
-            console.log('🔍 Revealing move:', playerMove, 'with nonce:', playerNonce);
-
-            // Generate opponent move for this round
-            const opponentMoveForRound = generateOpponentMove();
-            setOpponentMove(opponentMoveForRound);
-            
-            console.log(`🎯 Round ${currentRound} moves:`, { player: playerMove, opponent: opponentMoveForRound });
-
-            if (!account || !contract) {
-              console.log('⚠️ Account or contract not ready, using simulation mode');
-              await new Promise(resolve => setTimeout(resolve, 2000));
-              console.log('✅ Move revealed successfully (simulation)');
-              
-              // Determine round winner
-              const roundWinner = determineWinner(playerMove, opponentMoveForRound);
-              setLastRoundWinner(roundWinner);
-              
-              // Update win counts
-              let newPlayerWins = playerWins;
-              let newOpponentWins = opponentWins;
-              
-              if (roundWinner === 'player') {
-                newPlayerWins = playerWins + 1;
-                setPlayerWins(newPlayerWins);
-              } else if (roundWinner === 'opponent') {
-                newOpponentWins = opponentWins + 1;
-                setOpponentWins(newOpponentWins);
-              }
-              
-              // Show round result first
-              setGameStatus('round_result');
-              
-              console.log(`🏆 Round ${currentRound} result:`, { 
-                winner: roundWinner, 
-                playerWins: newPlayerWins, 
-                opponentWins: newOpponentWins,
-                moves: { player: playerMove, opponent: opponentMoveForRound }
-              });
-              return;
-            }
-
-            console.log('🔗 Calling reveal_move on blockchain');
-            
-            // Real contract call to reveal move
-            const moveNumber = moveToNumber(playerMove);
-            const call = contract.populate('reveal_move', [moveNumber, playerNonce]);
-            const result = await account.execute(call);
-            
-            console.log('🔗 Transaction submitted:', result.transaction_hash);
-            console.log('✅ Move revealed successfully on blockchain');
-            
-            // Determine round winner (same logic for blockchain)
-            const roundWinner = determineWinner(playerMove, opponentMoveForRound);
-            setLastRoundWinner(roundWinner);
-            
-            // Update win counts
-            let newPlayerWins = playerWins;
-            let newOpponentWins = opponentWins;
-            
-            if (roundWinner === 'player') {
-              newPlayerWins = playerWins + 1;
-              setPlayerWins(newPlayerWins);
-            } else if (roundWinner === 'opponent') {
-              newOpponentWins = opponentWins + 1;
-              setOpponentWins(newOpponentWins);
-            }
-            
-            // Show round result first
-            setGameStatus('round_result');
-            
-            console.log(`🏆 Round ${currentRound} result (blockchain):`, { 
-              winner: roundWinner, 
-              playerWins: newPlayerWins, 
-              opponentWins: newOpponentWins,
-              moves: { player: playerMove, opponent: opponentMoveForRound }
-            });
-            
-          } catch (err: any) {
-            console.error('❌ Failed to reveal move:', err);
-            setError(err.message || 'Failed to reveal move');
-          } finally {
-            setIsLoading(false);
-          }
-        };
-        
-        doReveal();
-      }, 3000); // 3 seconds delay
-      
-      return () => clearTimeout(revealTimer);
+  // Helper function to get account from Cartridge Controller
+  const getCartridgeAccount = useCallback(async () => {
+    if (!cartridgeConnector) {
+      throw new Error('Cartridge Controller not found');
     }
-  }, [gameStatus, playerMove, playerNonce, account, contract, currentRound, playerWins, opponentWins]);
-
-  // Contract interaction functions
-  const handleJoinQueue = async () => {
-    console.log('🎮 Joining matchmaking queue with entry fee...', { account: !!account, address: !!address, status });
     
-    setIsLoading(true);
-    setError(null);
+    // cartridgeConnector.account is a function that returns a Promise and needs a provider
+    const account = await cartridgeConnector.account(readProvider);
+    return account;
+  }, [cartridgeConnector, readProvider]);
+
+  // Helper function to generate move hash
+  const generateMoveHash = (move: Move, salt: string) => {
+    // This is a simplified hash - in production, use proper Poseidon hashing
+    const moveNum = MOVE_ENCODING[move];
+    // Generate a simple hash by combining move and salt
+    return `0x${moveNum.toString(16)}${salt}`;
+  };
+
+  // Helper function to generate random salt
+  const generateSalt = () => {
+    return Math.random().toString(36).substring(2, 15);
+  };
+
+  // Fetch queue length
+  const fetchQueueLength = useCallback(async () => {
+    try {
+      const result = await readContract.get_queue_length();
+      setQueueLength(Number(result));
+    } catch (error) {
+      console.error('Failed to fetch queue length:', error);
+      setQueueLength(0);
+    }
+  }, [readContract]);
+
+  // Check if player is in game
+  const checkPlayerInGame = useCallback(async () => {
+    if (!address) return false;
     
     try {
-      console.log('💰 Calling join_queue with entry fee:', ENTRY_FEE_WEI, 'wei');
+      const result = await readContract.is_player_in_game(address);
+      return result;
+    } catch (error) {
+      console.error('Failed to check if player is in game:', error);
+      return false;
+    }
+  }, [address, readContract]);
+
+  // Fetch game info
+  const fetchGameInfo = useCallback(async (gameId: string) => {
+    try {
+      const result = await readContract.get_game_info(gameId);
+      // result is tuple: (player1, player2, player1_wins, player2_wins, current_round, last_activity, prize_pool, winner)
+      const [player1, player2, player1Wins, player2Wins, round, lastActivity, prizePool, winner] = result;
       
-      if (!account || !contract) {
-        console.log('⚠️ Account or contract not ready, proceeding with simulation mode');
-        // Proceed without real contract call
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        setGameStatus('in_queue');
-        console.log('✅ Successfully joined queue (simulation)');
-        
-        // Poll for game matching - simulate finding opponent
-        const pollForMatch = async () => {
-          try {
-            // Simulate finding an opponent after some time
-            await new Promise(resolve => setTimeout(resolve, 8000));
+      return {
+        player1: player1.toString(),
+        player2: player2.toString(),
+        player1Wins: Number(player1Wins),
+        player2Wins: Number(player2Wins),
+        currentRound: Number(round),
+        lastActivity: Number(lastActivity),
+        prizePool: prizePool.toString(),
+        winner: winner.toString()
+      };
+    } catch (error) {
+      console.error('Failed to fetch game info:', error);
+      return null;
+    }
+  }, [readContract]);
+
+  // Polling for game state updates - simplified to reduce re-renders
+  useEffect(() => {
+    if (!address || gameStatus === 'idle') return;
+
+    const pollGameState = async () => {
+      try {
+        // Only poll if we have an active game
+        if (currentGameId) {
+          const gameInfo = await fetchGameInfo(currentGameId);
+          if (gameInfo) {
+            const isPlayer1 = gameInfo.player1.toLowerCase() === address.toLowerCase();
+            const playerWins = isPlayer1 ? gameInfo.player1Wins : gameInfo.player2Wins;
+            const opponentWins = isPlayer1 ? gameInfo.player2Wins : gameInfo.player1Wins;
             
-            const mockOpponentAddress = '0x123456789abcdef123456789abcdef123456789ab';
-            setOpponentAddress(mockOpponentAddress);
-            setOpponentName(formatAddress(mockOpponentAddress));
-            setCurrentGameId(Date.now().toString());
-            setGameStatus('committing');
-            setMoveTimeoutStart(Date.now());
+            setPlayerWins(playerWins);
+            setOpponentWins(opponentWins);
+            setCurrentRound(gameInfo.currentRound);
             
-            console.log('🎯 Opponent found! Time to commit your move');
-          } catch (err) {
-            console.error('Error polling for match:', err);
-            setError('Failed to find match');
+            // Set opponent info
+            const opponentAddr = isPlayer1 ? gameInfo.player2 : gameInfo.player1;
+            setOpponentAddress(opponentAddr);
+            setOpponentName(`Player ${opponentAddr.slice(0, 6)}...${opponentAddr.slice(-4)}`);
+            
+            // Update game status
+            if (gameInfo.winner !== '0x0') {
+              setGameStatus('game_complete');
+              setGameWinner(gameInfo.winner.toLowerCase() === address.toLowerCase() ? 'player' : 'opponent');
+            }
           }
-        };
-        
-        pollForMatch();
-        return;
+        }
+      } catch (error) {
+        console.error('Error polling game state:', error);
       }
+    };
+
+    // Only poll every 5 seconds to reduce load
+    const interval = setInterval(pollGameState, 5000);
+    return () => clearInterval(interval);
+  }, [address, currentGameId, gameStatus, fetchGameInfo]);
+
+  // Initial queue length fetch - once on mount
+  useEffect(() => {
+    fetchQueueLength();
+  }, [fetchQueueLength]);
+
+  const joinQueue = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      console.log('🎮 Joining matchmaking queue...');
       
-      // Real contract call with entry fee
-      const call = contract.populate('join_queue', []);
-      const result = await account.execute(call, {
-        maxFee: ENTRY_FEE_WEI // Entry fee as transaction fee
+      // Get account directly from Cartridge Controller
+      const account = await getCartridgeAccount();
+      
+      console.log('🎮 Using Cartridge account:', account);
+      
+      // Real contract call to join queue
+      const result = await account.execute({
+        contractAddress: CONTRACT_ADDRESS,
+        entrypoint: 'join_queue',
+        calldata: []
       });
       
-      console.log('🔗 Transaction submitted:', result.transaction_hash);
-      setGameStatus('in_queue');
-      console.log('✅ Successfully joined queue on blockchain');
+      console.log('Queue join transaction:', result.transaction_hash);
       
-      // Poll for game matching - in real implementation, this would be event-based
-      const pollForMatch = async () => {
-        try {
-          // Simulate finding an opponent after some time
-          await new Promise(resolve => setTimeout(resolve, 8000));
-          
-          // In real implementation, would call get_game_info or listen for GameMatched event
-          const mockOpponentAddress = '0x123456789abcdef123456789abcdef123456789ab';
-          setOpponentAddress(mockOpponentAddress);
-          setOpponentName(formatAddress(mockOpponentAddress));
-          setCurrentGameId(result.transaction_hash);
-          setGameStatus('committing');
+      // Wait for transaction to be accepted
+      await readProvider.waitForTransaction(result.transaction_hash);
+      
+      setGameStatus('queue');
+      console.log('✅ Successfully joined queue');
+      
+      // Start polling for game start
+      const pollForGame = async () => {
+        const inGame = await checkPlayerInGame();
+        if (inGame) {
+          // Player found a game - need to get game ID
+          // For now, we'll use a placeholder game ID
+          setCurrentGameId('1'); // This would need to be fetched from contract events
+          setGameStatus('selecting_move');
           setMoveTimeoutStart(Date.now());
-          
-          console.log('🎯 Opponent found! Time to commit your move');
-        } catch (err) {
-          console.error('Error polling for match:', err);
-          setError('Failed to find match');
+        } else {
+          // Still in queue, continue polling
+          setTimeout(pollForGame, 2000);
         }
       };
       
-      pollForMatch();
+      setTimeout(pollForGame, 2000);
       
-    } catch (err: any) {
-      console.error('❌ Failed to join queue:', err);
-      setError(err.message || 'Failed to join queue');
+    } catch (error: any) {
+      console.error('❌ Failed to join queue:', error);
+      // More helpful error message
+      if (error.message?.includes('account') || error.message?.includes('Cartridge')) {
+        setError('Cartridge Controller session issue - please refresh and try again');
+      } else {
+        setError(error.message || 'Failed to join queue');
+      }
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [getCartridgeAccount, checkPlayerInGame, readProvider]);
 
-  const handleCommitMove = async (move: Move) => {
-    console.log('🎯 Committing move:', move, { account: !!account, address: !!address, status });
-    
-    setIsLoading(true);
-    setError(null);
-    
+  const submitMove = useCallback(async (move: Move) => {
     try {
-      const nonce = generateNonce();
-      const commitment = generateCommitment(move, nonce);
+      setIsLoading(true);
+      setError(null);
+      console.log('🎯 Submitting move:', move);
       
-      setPlayerMove(move);
-      setPlayerNonce(nonce);
-
-      if (!account || !contract) {
-        console.log('⚠️ Account or contract not ready, using simulation mode');
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        console.log('✅ Move committed successfully (simulation), commitment:', commitment);
-        setGameStatus('revealing');
-        
-        // Add chance for opponent timeout during commit phase (5% chance)
-        const opponentTimeoutChance = Math.random();
-        if (opponentTimeoutChance < 0.05) {
-          console.log('⏰ Opponent timed out during commit phase (simulation)!');
-          setTimeout(() => {
-            setGameWinner('player');
-            setTimeoutReason('Your opponent failed to commit their move in time');
-            setGameStatus('timeout_win');
-            console.log('🏆 Player wins by opponent timeout during commit (simulation)!');
-          }, 15000); // 15 seconds delay to simulate waiting for opponent
-        }
-        
-        // Auto-reveal will be handled by useEffect
-        return;
+      // Get account directly from Cartridge Controller
+      const account = await getCartridgeAccount();
+      
+      if (!currentGameId) {
+        throw new Error('No active game');
       }
-
-      console.log('🔗 Calling commit_move on blockchain, commitment:', commitment);
+      
+      // Generate salt and hash for commit-reveal
+      const salt = generateSalt();
+      const moveHash = generateMoveHash(move, salt);
+      
+      // Store for reveal phase
+      setPendingMoveHash(moveHash);
+      setPendingSalt(salt);
+      setPlayerMove(move);
       
       // Real contract call to commit move
-      const call = contract.populate('commit_move', [commitment]);
-      const result = await account.execute(call);
+      const result = await account.execute({
+        contractAddress: CONTRACT_ADDRESS,
+        entrypoint: 'commit_move',
+        calldata: CallData.compile([currentGameId, currentRound, moveHash])
+      });
       
-      console.log('🔗 Transaction submitted:', result.transaction_hash);
-      console.log('✅ Move committed successfully on blockchain');
-      setGameStatus('revealing');
+      console.log('Move commit transaction:', result.transaction_hash);
       
-      // Add chance for opponent timeout during commit phase (5% chance)
-      const opponentTimeoutChance = Math.random();
-      if (opponentTimeoutChance < 0.05) {
-        console.log('⏰ Opponent timed out during commit phase!');
-        setTimeout(() => {
-          setGameWinner('player');
-          setTimeoutReason('Your opponent failed to commit their move in time');
-          setGameStatus('timeout_win');
-          console.log('🏆 Player wins by opponent timeout during commit!');
-        }, 15000); // 15 seconds delay to simulate waiting for opponent
-      }
+      // Wait for transaction
+      await readProvider.waitForTransaction(result.transaction_hash);
       
-      // Auto-reveal will be handled by useEffect
+      setGameStatus('waiting_for_reveal');
+      console.log('✅ Move committed successfully');
       
-    } catch (err: any) {
-      console.error('❌ Failed to commit move:', err);
-      setError(err.message || 'Failed to commit move');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleRevealMove = async () => {
-    if (!playerMove || !playerNonce) return;
-    
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      console.log('🔍 Revealing move:', playerMove, 'with nonce:', playerNonce);
-
-      if (!account || !contract) {
-        console.log('⚠️ Account or contract not ready, using simulation mode');
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        console.log('✅ Move revealed successfully (simulation)');
-        setGameStatus('completed');
-        
-        setTimeout(() => {
-          console.log('🏆 Game completed! You can claim your prize');
-        }, 1000);
-        return;
-      }
-
-      console.log('🔗 Calling reveal_move on blockchain');
-      
-      // Real contract call to reveal move
-      const moveNumber = moveToNumber(playerMove);
-      const call = contract.populate('reveal_move', [moveNumber, playerNonce]);
-      const result = await account.execute(call);
-      
-      console.log('🔗 Transaction submitted:', result.transaction_hash);
-      console.log('✅ Move revealed successfully on blockchain');
-      setGameStatus('completed');
-      
-      // Show result and allow prize claim
-      setTimeout(() => {
-        console.log('🏆 Game completed! You can claim your prize');
+      // Auto-reveal after a short delay (in real game, this would be triggered by game state)
+      setTimeout(async () => {
+        try {
+          const revealResult = await account.execute({
+            contractAddress: CONTRACT_ADDRESS,
+            entrypoint: 'reveal_move',
+            calldata: CallData.compile([currentGameId, currentRound, MOVE_ENCODING[move], salt])
+          });
+          
+          console.log('Move reveal transaction:', revealResult.transaction_hash);
+          await readProvider.waitForTransaction(revealResult.transaction_hash);
+          
+          console.log('✅ Move revealed successfully');
+          setGameStatus('waiting_for_opponent');
+          
+        } catch (revealError) {
+          console.error('❌ Failed to reveal move:', revealError);
+          setError('Failed to reveal move');
+        }
       }, 2000);
       
-    } catch (err: any) {
-      console.error('❌ Failed to reveal move:', err);
-      setError(err.message || 'Failed to reveal move');
+    } catch (error: any) {
+      console.error('❌ Failed to submit move:', error);
+      setError(error.message || 'Failed to submit move');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [getCartridgeAccount, currentGameId, currentRound, readProvider]);
 
-  const resetGame = () => {
-    setGameStatus('idle');
-    setCurrentGameId('0');
-    setPlayerMove(null);
-    setPlayerNonce('');
-    setOpponentAddress('');
-    setOpponentName('');
-    setOpponentMove(null);
-    setMoveTimeoutStart(0);
-    setPlayerWins(0);
-    setOpponentWins(0);
-    setCurrentRound(1);
-    setLastRoundWinner(null);
-    setGameWinner(null);
-    setTimeoutReason('');
-    setError(null);
-  };
-
-  // Handle move timeout - player loses the entire game
-  const handleMoveTimeout = () => {
-    console.log('⏰ Player move timeout - Game over!');
-    setGameWinner('opponent');
-    setTimeoutReason('You ran out of time to make your move');
-    setGameStatus('timeout_win');
-    
-    console.log('🏆 Opponent wins by timeout! They can claim the prize.');
-  };
-
-  // Continue to next round
-  const continueToNextRound = () => {
-    // Check if game is complete (first to 3 wins) - check current state
-    const newPlayerWins = playerWins;
-    const newOpponentWins = opponentWins;
-    
-    if (newPlayerWins >= 3 || newOpponentWins >= 3) {
-      console.log(`🏆 Game complete! Final score: Player ${newPlayerWins} - Opponent ${newOpponentWins}`);
-      setGameStatus('completed');
-      return;
-    }
-    
-    // Reset round state for next round
-    setPlayerMove(null);
-    setPlayerNonce('');
-    setOpponentMove(null);
-    setLastRoundWinner(null);
-    setCurrentRound(prev => prev + 1);
-    setGameStatus('committing');
-    setMoveTimeoutStart(Date.now());
-    
-    console.log(`🔄 Starting round ${currentRound + 1}, score: Player ${newPlayerWins} - Opponent ${newOpponentWins}`);
-  };
-
-  // Handle claiming prize and resetting
-  const handleClaimPrize = async () => {
-    console.log('🏆 Claiming prize...', { account: !!account, address: !!address, status });
-    
-    setIsLoading(true);
-    setError(null);
-    
+  const forfeitGame = useCallback(async () => {
     try {
-      if (!account || !contract) {
-        console.log('⚠️ Account or contract not ready, using simulation mode');
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        console.log('✅ Prize claimed successfully (simulation)');
-        
-        // Reset all game state
-        resetGame();
-        return;
-      }
+      setIsLoading(true);
+      setError(null);
+      console.log('🏳️ Forfeiting game...');
+      
+      // Reset game state immediately (no contract call needed for forfeit)
+      setGameStatus('idle');
+      setCurrentGameId(null);
+      setPlayerMove(null);
+      setOpponentMove(null);
+      setOpponentAddress('');
+      setOpponentName('');
+      setPlayerWins(0);
+      setOpponentWins(0);
+      setCurrentRound(1);
+      setLastRoundWinner(null);
+      setGameWinner(null);
+      setPendingMoveHash(null);
+      setPendingSalt(null);
+      
+      console.log('✅ Game forfeited locally');
+      
+    } catch (error: any) {
+      console.error('❌ Failed to forfeit game:', error);
+      setError(error.message || 'Failed to forfeit game');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
-      console.log('🔗 Calling claim_prize on blockchain');
+  const claimPrize = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      console.log('🏆 Claiming prize...');
+      
+      // Get account directly from Cartridge Controller
+      const account = await getCartridgeAccount();
+      
+      if (!currentGameId) {
+        throw new Error('No active game');
+      }
       
       // Real contract call to claim prize
-      const call = contract.populate('claim_prize', []);
-      const result = await account.execute(call);
+      const result = await account.execute({
+        contractAddress: CONTRACT_ADDRESS,
+        entrypoint: 'claim_prize',
+        calldata: CallData.compile([currentGameId])
+      });
       
-      console.log('🔗 Transaction submitted:', result.transaction_hash);
-      console.log('✅ Prize claimed successfully on blockchain');
-      console.log('💰 Prize should be transferred to your account');
+      console.log('Prize claim transaction:', result.transaction_hash);
       
-      // Reset all game state
-      resetGame();
+      // Wait for transaction
+      await readProvider.waitForTransaction(result.transaction_hash);
       
-    } catch (err: any) {
-      console.error('❌ Failed to claim prize:', err);
-      setError(err.message || 'Failed to claim prize');
+      console.log('✅ Prize claimed successfully');
+      
+    } catch (error: any) {
+      console.error('❌ Failed to claim prize:', error);
+      setError(error.message || 'Failed to claim prize');
     } finally {
       setIsLoading(false);
     }
-  };
-
-  // More lenient connection detection - if user has account OR address, consider connected
-  // This handles brief moments during page navigation where status might not be immediately 'connected'
-  const isConnected = Boolean((account || address) && status !== 'disconnected');
+  }, [getCartridgeAccount, currentGameId, readProvider]);
 
   return {
-    // State
     gameStatus,
     currentGameId,
     queueLength,
@@ -567,21 +468,11 @@ export const useRockPaperScissorsContract = () => {
     currentRound,
     lastRoundWinner,
     gameWinner,
-    timeoutReason,
     isLoading,
     error,
-    isConnected,
-    
-    // Actions
-    joinQueue: handleJoinQueue,
-    commitMove: handleCommitMove,
-    revealMove: handleRevealMove,
-    claimPrize: handleClaimPrize,
-    resetGame,
-    continueToNextRound,
-    handleMoveTimeout,
-    
-    // Constants
-    MOVE_TIMEOUT_SECONDS,
+    joinQueue,
+    submitMove,
+    forfeitGame,
+    claimPrize
   };
 }; 

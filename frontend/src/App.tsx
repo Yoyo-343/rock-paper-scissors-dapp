@@ -14,7 +14,7 @@ const queryClient = new QueryClient();
 
 const RPS_CONTRACT_ADDRESS = "0x0638e6d45d476e71044f8e8d7119f6158748bf5bd56018e2f9275c96499c52b9";
 
-// Cartridge Controller configuration for Sepolia testnet
+// Single Cartridge Controller connector - this is the only one we need!
 const cartridgeConnector = new ControllerConnector({
   policies: [
     {
@@ -32,8 +32,23 @@ const cartridgeConnector = new ControllerConnector({
     {
       target: RPS_CONTRACT_ADDRESS,
       method: "claim_prize",
+    },
+    {
+      target: RPS_CONTRACT_ADDRESS,
+      method: "forfeit_game",
     }
   ]
+});
+
+console.log('🎮 Cartridge Controller created with properties:', {
+  connector: cartridgeConnector,
+  id: cartridgeConnector.id,
+  name: cartridgeConnector.name,
+  type: cartridgeConnector.constructor.name,
+  available: typeof cartridgeConnector.available === 'function',
+  connect: typeof cartridgeConnector.connect === 'function',
+  allProperties: Object.getOwnPropertyNames(cartridgeConnector),
+  prototypeProperties: Object.getOwnPropertyNames(Object.getPrototypeOf(cartridgeConnector))
 });
 
 const App = () => (
@@ -50,7 +65,6 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/game" element={<Game />} />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

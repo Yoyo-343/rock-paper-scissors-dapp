@@ -1,180 +1,217 @@
-import React, { useState, useEffect } from 'react';
-import { Zap, Shield, Trophy } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Zap, Shield, Trophy, Play, RefreshCw, Loader2 } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from 'react-router-dom';
-import { useConnect, useAccount, useDisconnect } from '@starknet-react/core';
+import { useAccount, useConnect, useDisconnect } from '@starknet-react/core';
+import { ControllerConnector } from '@cartridge/connector';
 import { useRockPaperScissorsContract } from '../hooks/useRockPaperScissorsContract';
 import GameCard from '../components/GameCard';
-import PlayButton from '../components/PlayButton';
 import StatCard from '../components/StatCard';
 import Footer from '../components/Footer';
 import FloatingSymbols from '../components/FloatingSymbols';
+import { Button } from '../components/ui/button';
 
 const Index = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
+  
+  // Use standard starknet-react hooks
+  const { account, address, status } = useAccount();
   const { connect, connectors } = useConnect();
-  const { account, address, isConnected } = useAccount();
   const { disconnect } = useDisconnect();
+  
+  // Find controller connector directly to avoid initialization issues with fromConnectors
+  const controllerConnector = useMemo(() => {
+    const connector = connectors.find(connector => connector instanceof ControllerConnector);
+    console.log('🎮 Found controller connector:', {
+      connector: !!connector,
+      connectorId: connector?.id,
+      connectorName: connector?.name,
+      totalConnectors: connectors.length
+    });
+    return connector;
+  }, [connectors]);
+  
   const { queueLength } = useRockPaperScissorsContract();
   const [isConnecting, setIsConnecting] = useState(false);
   const [strkPrice, setStrkPrice] = useState<number | null>(null);
   const [isLoadingPrice, setIsLoadingPrice] = useState(true);
   const [entryFeeStrk, setEntryFeeStrk] = useState<string>("0");
 
-  // Fetch real STRK price from Pragma oracle
+  // Derived state - use simple account check
+  const isConnected = !!account;
+  const isLoading = status === 'connecting' || status === 'reconnecting';
+
+  // Single console log to avoid spam
+  console.log('🔍 Wallet state:', { 
+    status, 
+    address: address?.slice(0, 10) + '...', 
+    isConnected, 
+    isLoading,
+    hasControllerConnector: !!controllerConnector
+  });
+
+  // Auto-navigate when connected during connection flow
+  useEffect(() => {
+    if (isConnecting && account) {
+      console.log('🎯 Connected! Navigating to game...');
+      setIsConnecting(false);
+      navigate('/game');
+    }
+  }, [account, isConnecting, navigate]);
+
+  // Load STRK price on mount
   useEffect(() => {
     const fetchStrkPrice = async () => {
       try {
-        // First try Pragma oracle API for STRK price
-        const pragmaResponse = await fetch('https://api.pragma.build/node/v1/data/STRK/USD?interval=1min&routing=true');
-        const pragmaData = await pragmaResponse.json();
+        setIsLoadingPrice(true);
+        const response = await fetch('https://api.coinbase.com/v2/exchange-rates?currency=STRK');
+        const data = await response.json();
+        const strkPriceUsd = parseFloat(data.data.rates.USD);
+        setStrkPrice(strkPriceUsd);
         
-        if (pragmaData && pragmaData.price) {
-          const price = parseFloat(pragmaData.price);
-          setStrkPrice(price);
-          // Calculate STRK needed for $1 USD
-          const strkFor1USD = (1 / price).toFixed(4);
-          setEntryFeeStrk(strkFor1USD);
-        } else {
-          throw new Error('Pragma API failed');
-        }
+        // Calculate entry fee in STRK (assuming $1 entry fee)
+        const entryFeeInStrk = (1 / strkPriceUsd).toFixed(4);
+        setEntryFeeStrk(entryFeeInStrk);
       } catch (error) {
-        console.error('Failed to fetch STRK price from Pragma:', error);
-        try {
-          // Fallback to CoinGecko for STRK price
-          const cgResponse = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=starknet&vs_currencies=usd');
-          const cgData = await cgResponse.json();
-          const price = cgData.starknet.usd;
-          setStrkPrice(price);
-          // Calculate STRK needed for $1 USD
-          const strkFor1USD = (1 / price).toFixed(4);
-          setEntryFeeStrk(strkFor1USD);
-        } catch (fallbackError) {
-          console.error('Failed to fetch STRK price from fallback:', fallbackError);
-          setStrkPrice(0.5); // Fallback price ~$0.50
-          setEntryFeeStrk("2.0000"); // 2 STRK for $1
-        }
+        console.error('Failed to fetch STRK price:', error);
+        setStrkPrice(null);
+        setEntryFeeStrk("0");
       } finally {
         setIsLoadingPrice(false);
       }
     };
 
     fetchStrkPrice();
-    const interval = setInterval(fetchStrkPrice, 30000);
-    return () => clearInterval(interval);
   }, []);
 
-  // Debug connection state changes
-  useEffect(() => {
-    console.log('🔍 Connection state changed:', {
-      isConnected,
-      address,
-      account,
-      isConnecting
-    });
-  }, [isConnected, address, account, isConnecting]);
-
-  const handlePlayClick = async () => {
-    // If already connecting, allow user to cancel
+  const handlePlayClick = useCallback(async () => {
+    // If currently connecting, cancel the connection
     if (isConnecting) {
-      console.log('🚫 User cancelled connection');
+      console.log('🚫 User canceled connection');
       setIsConnecting(false);
-      return;
-    }
-    
-    // If already connected, proceed directly to game
-    if (isConnected && address) {
-      console.log('🎯 Existing session detected, entering game arena with address:', address);
-      navigate('/game');
-      return;
-    }
-    
-    // Check if there's a persisted session we can use
-    console.log('🔍 Checking for existing Cartridge Controller session...');
-    
-    // Try to navigate to game first - if user has a valid session, the game will work
-    // If not, they'll get appropriate feedback there
-    console.log('🎮 Proceeding to game - will handle connection there if needed');
-    navigate('/game');
-    
-    /* 
-    // Only show connection flow if user explicitly wants to connect a new session
-    setIsConnecting(true);
-    
-    // Add safety timeout to prevent infinite loading
-    const safetyTimeout = setTimeout(() => {
-      console.error('🚨 Safety timeout triggered - resetting connection state');
-      setIsConnecting(false);
-    }, 45000); // 45 seconds max
-    
-    try {
-      console.log('🎮 Opening Cartridge Controller...');
-      console.log('📋 Available connectors:', connectors.map(c => ({ id: c.id, name: c.name })));
       
-      // Get the Cartridge connector - try multiple possible IDs
-      let cartridgeConnector = connectors.find(c => c.id === 'controller');
-      if (!cartridgeConnector) {
-        cartridgeConnector = connectors.find(c => c.id === 'cartridge');
-      }
-      if (!cartridgeConnector) {
-        cartridgeConnector = connectors.find(c => c.name?.toLowerCase().includes('cartridge'));
-      }
-      if (!cartridgeConnector) {
-        cartridgeConnector = connectors[0]; // fallback to first connector
+      // Force disconnect to clean up any stuck state
+      try {
+        await disconnect();
+        console.log('🔌 Forced disconnect to clean up stuck state');
+      } catch (error) {
+        console.log('⚠️ Force disconnect failed (may not be connected):', error);
       }
       
-      if (!cartridgeConnector) {
-        throw new Error('No connectors available');
-      }
-      
-      console.log('🔗 Using connector:', { id: cartridgeConnector.id, name: cartridgeConnector.name });
-      console.log('🔗 Attempting to connect...');
-      
-      // Add connection timeout
-      const connectionPromise = connect({ connector: cartridgeConnector });
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Connection timeout')), 30000)
-      );
-      
-      const result = await Promise.race([connectionPromise, timeoutPromise]);
-      console.log('🔗 Connect result:', result);
-      
-      console.log('✅ Cartridge Controller connected successfully!');
-      console.log('🔑 Session policies activated for Rock Paper Scissors');
-      
-      clearTimeout(safetyTimeout);
-      
-      // Since connection succeeded, navigate to game immediately
-      console.log('🎯 Connection succeeded, navigating to game page...');
-      setIsConnecting(false);
-      navigate('/game');
-      
-    } catch (error) {
-      clearTimeout(safetyTimeout);
-      console.error('❌ Cartridge Controller connection failed:', error);
-      console.error('❌ Error details:', {
-        message: error.message,
-        stack: error.stack,
-        cause: error.cause
+      toast({
+        title: "Connection Canceled",
+        description: "Connection attempt canceled by user",
       });
-      setIsConnecting(false);
-      
-      // Show user-friendly error message
-      if (error.message === 'Connection timeout') {
-        console.error('Connection timed out. Please try again.');
-      } else if (error.message.includes('User rejected') || error.message.includes('user rejected')) {
-        console.log('User cancelled connection');
-      } else {
-        console.error('Failed to connect wallet. Please try again.');
-      }
+      return;
     }
-    */
-  };
 
-  const handleDisconnect = () => {
-    disconnect();
-    console.log('🔌 Cartridge Controller disconnected');
+    // If already connected, proceed directly to game
+    if (account) {
+      console.log('🎯 Already connected, entering game...');
+      navigate('/game');
+      return;
+    }
+
+    // Otherwise connect
+    if (controllerConnector) {
+      console.log('🎮 Connecting to Cartridge Controller...');
+      console.log('🔍 Connector details:', {
+        id: controllerConnector.id,
+        name: controllerConnector.name,
+        available: controllerConnector.available,
+        ready: controllerConnector.ready
+      });
+      
+      // Check if controller is still initializing
+      if (!controllerConnector.ready) {
+        console.log('⏳ Controller not ready yet, waiting...');
+        toast({
+          title: "Controller Initializing",
+          description: "Please wait for the controller to finish initializing and try again.",
+        });
+        return;
+      }
+      
+      setIsConnecting(true);
+      
+      // Add a shorter timeout to prevent hanging
+      const connectTimeout = setTimeout(() => {
+        console.log('⏰ Connection timeout - resetting state');
+        setIsConnecting(false);
+        toast({
+          title: "Connection Timeout",
+          description: "Controller initialization timed out. Please refresh the page and try again.",
+          variant: "destructive",
+        });
+      }, 10000); // 10 second timeout instead of 15
+      
+      try {
+        console.log('🔗 Calling connect with controller...');
+        
+        // Try connecting with additional error context
+        const result = await connect({ connector: controllerConnector });
+        console.log('✅ Connect call completed, result:', result);
+        
+        // Clear timeout since connection succeeded
+        clearTimeout(connectTimeout);
+        
+        // If account is already available, navigate immediately
+        if (account) {
+          console.log('🎯 Account available immediately, navigating...');
+          setIsConnecting(false);
+          navigate('/game');
+        }
+        // Otherwise useEffect will handle navigation when account becomes available
+        
+      } catch (error) {
+        console.error('❌ Connection failed:', error);
+        clearTimeout(connectTimeout);
+        setIsConnecting(false);
+        
+        // More specific error handling
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.log('🔍 Error details:', { 
+          errorMessage, 
+          errorType: typeof error, 
+          error: error,
+          stack: error instanceof Error ? error.stack : undefined
+        });
+        
+        toast({
+          title: "Connection Error", 
+          description: `Failed to connect: ${errorMessage}. Try refreshing the page.`,
+          variant: "destructive",
+        });
+      }
+    } else {
+      console.error('❌ No controller connector found');
+      console.log('🔍 Available connectors:', connectors.map(c => ({ id: c.id, name: c.name })));
+      toast({
+        title: "Connection Error",
+        description: "Cartridge Controller not available. Please refresh the page.",
+        variant: "destructive",
+      });
+    }
+  }, [account, controllerConnector, connect, navigate, toast, isConnecting, disconnect, connectors]);
+
+  const handleDisconnect = async () => {
+    try {
+      console.log('🔌 Disconnecting...');
+      await disconnect();
+      
+      toast({
+        title: "Disconnected",
+        description: "Successfully disconnected from wallet",
+      });
+    } catch (error: any) {
+      console.error('❌ Failed to disconnect:', error);
+      toast({
+        title: "Disconnect Failed",
+        description: "Failed to disconnect. Please refresh the page.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -200,9 +237,9 @@ const Index = () => {
           <div className="inline-flex items-center gap-2 px-4 py-2 bg-green-500/20 border border-green-500/40 rounded-lg text-green-400">
             <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
             <span className="text-sm font-medium">
-              Connected: {address.slice(0, 6)}...{address.slice(-4)}
+              Connected: {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Connected'}
             </span>
-            <button 
+            <button
               onClick={handleDisconnect}
               className="ml-2 text-xs text-red-400 hover:text-red-300 underline"
             >
@@ -250,21 +287,54 @@ const Index = () => {
         {/* Play Now Button */}
         <div className="flex justify-center mb-12">
           <div className="px-16">
-            <PlayButton 
-              onClick={handlePlayClick} 
-              isConnected={isConnected}
-              isConnecting={isConnecting}
-            />
+            <div className="flex gap-4 justify-center">
+              <Button 
+                onClick={handlePlayClick}
+                size="lg"
+                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold px-8 py-4 text-lg shadow-lg transition-all duration-300 transform hover:scale-105"
+                disabled={isConnecting || !controllerConnector?.ready}
+              >
+                {isConnecting ? (
+                  <>
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    Connecting...
+                  </>
+                ) : account ? (
+                  <>
+                    <Play className="mr-2 h-5 w-5" />
+                    Enter Game
+                  </>
+                ) : (
+                  <>
+                    <Play className="mr-2 h-5 w-5" />
+                    Play Now
+                  </>
+                )}
+              </Button>
+              
+              {/* Show refresh button if controller is not ready */}
+              {controllerConnector && !controllerConnector.ready && (
+                <Button
+                  onClick={() => window.location.reload()}
+                  size="lg"
+                  variant="outline"
+                  className="px-6 py-4 text-lg"
+                >
+                  <RefreshCw className="mr-2 h-5 w-5" />
+                  Refresh
+                </Button>
+              )}
+            </div>
           </div>
         </div>
 
         {/* Statistics Row */}
-                  <div className="flex justify-center w-full mb-20">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-md">
-              <StatCard title="Players in Queue" value={queueLength.toString()} />
-              <StatCard title="Total Prize Won" value="$3,891" />
-            </div>
+        <div className="flex justify-center w-full mb-20">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-md">
+            <StatCard title="Games Played" value={queueLength.toString()} />
+            <StatCard title="Total Prize Won" value="$3,891" />
           </div>
+        </div>
       </main>
 
       {/* Footer */}
