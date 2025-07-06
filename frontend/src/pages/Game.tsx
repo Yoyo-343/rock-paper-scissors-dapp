@@ -52,17 +52,19 @@ const Game = () => {
     navigate('/');
   };
 
-  // Direct approach: If user reached this page, they're connected!
-  // Auto-join queue immediately when page loads
+  // Enhanced auto-join logic with better error handling
   useEffect(() => {
-    if (gameStatus === 'idle') {
-      console.log('🎮 Direct auto-joining queue (user reached game page = connected)...');
-      // Small delay to ensure page is ready, then join queue directly
-      setTimeout(() => {
+    if (gameStatus === 'idle' && !error) {
+      console.log('🎮 Auto-joining queue when game loads...');
+      // Small delay to ensure Cartridge Controller is ready
+      const timer = setTimeout(() => {
+        console.log('🎮 Attempting to join queue...');
         joinQueue();
-      }, 500);
+      }, 1000); // Increased delay to give Cartridge Controller time to initialize
+      
+      return () => clearTimeout(timer);
     }
-  }, [gameStatus, joinQueue]);
+  }, [gameStatus, joinQueue, error]);
 
   // Debug logging
   useEffect(() => {
@@ -87,8 +89,25 @@ const Game = () => {
           {/* Show error if any contract calls fail */}
           {error && (
             <div className="text-center mb-8">
-              <div className="inline-flex items-center gap-2 px-4 py-2 bg-red-500/20 border border-red-500/40 rounded-lg text-red-400">
+              <div className="inline-flex flex-col items-center gap-4 px-6 py-4 bg-red-500/20 border border-red-500/40 rounded-lg text-red-400 max-w-md mx-auto">
                 <span className="text-sm font-medium">Error: {error}</span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      console.log('🔄 Manual retry - attempting to join queue...');
+                      joinQueue();
+                    }}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded font-medium"
+                  >
+                    Try Again
+                  </button>
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white text-sm rounded font-medium"
+                  >
+                    Refresh Page
+                  </button>
+                </div>
               </div>
             </div>
           )}

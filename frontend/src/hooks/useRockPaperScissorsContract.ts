@@ -150,15 +150,49 @@ export const useRockPaperScissorsContract = () => {
   const readProvider = useMemo(() => new RpcProvider({ nodeUrl: PROVIDER_URL }), []);
   const readContract = useMemo(() => new Contract(ABI, CONTRACT_ADDRESS, readProvider), [readProvider]);
 
-  // Helper function to get account from Cartridge Controller
+  // Helper function to get account from Cartridge Controller with proper connection validation
   const getCartridgeAccount = useCallback(async () => {
     if (!cartridgeConnector) {
       throw new Error('Cartridge Controller not found');
     }
     
-    // cartridgeConnector.account is a function that returns a Promise and needs a provider
-    const account = await cartridgeConnector.account(readProvider);
-    return account;
+    console.log('🔍 Cartridge connector state:', {
+      id: cartridgeConnector.id,
+      available: cartridgeConnector.available,
+      ready: cartridgeConnector.ready
+    });
+    
+    // Try to get the account, with retry logic if it fails
+    let lastError;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        console.log(`🔗 Attempt ${attempt}: Getting account from Cartridge Controller...`);
+        const account = await cartridgeConnector.account(readProvider);
+        console.log('✅ Successfully retrieved Cartridge account:', account.address);
+        return account;
+      } catch (accountError) {
+        console.warn(`❌ Attempt ${attempt} failed:`, accountError);
+        lastError = accountError;
+        
+        // If not the last attempt, try to reconnect
+        if (attempt < 3) {
+          try {
+            console.log('🔄 Attempting to reconnect Cartridge Controller...');
+            await cartridgeConnector.connect();
+            console.log('✅ Cartridge Controller reconnected');
+            // Wait a bit before next attempt
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          } catch (connectError) {
+            console.warn('❌ Reconnection failed:', connectError);
+          }
+        }
+      }
+    }
+    
+    // If all attempts failed, throw the last error
+    console.error('❌ All attempts to get Cartridge account failed:', lastError);
+    const errorMessage = lastError instanceof Error ? lastError.message : 'Unknown error';
+    throw new Error(`Failed to access Cartridge Controller: ${errorMessage}. Please refresh the page and try again.`);
   }, [cartridgeConnector, readProvider]);
 
   // Helper function to generate move hash
