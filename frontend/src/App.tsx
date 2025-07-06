@@ -14,7 +14,7 @@ const queryClient = new QueryClient();
 
 const RPS_CONTRACT_ADDRESS = "0x0638e6d45d476e71044f8e8d7119f6158748bf5bd56018e2f9275c96499c52b9";
 
-// Single Cartridge Controller connector - this is the only one we need!
+// Single Cartridge Controller connector with session persistence
 const cartridgeConnector = new ControllerConnector({
   policies: [
     {
