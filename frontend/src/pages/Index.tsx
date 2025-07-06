@@ -73,6 +73,7 @@ const Index = () => {
       account: !!account,
       address: account?.address,
       isConnecting,
+      status,
       timestamp: new Date().toISOString()
     });
     
@@ -85,7 +86,7 @@ const Index = () => {
       console.log('🚀 Navigating to game page...');
       navigate('/game');
     }
-  }, [account, navigate, isConnecting]);
+  }, [account, navigate, isConnecting, status]);
 
   // Load STRK price on mount
   useEffect(() => {
@@ -138,25 +139,44 @@ const Index = () => {
     
     try {
       console.log('🔗 Calling connect...');
-      await connect({ connector: controllerConnector });
-      console.log('✅ Connect call completed');
+      const connectResult = await connect({ connector: controllerConnector });
+      console.log('✅ Connect call completed, result:', connectResult);
       
-      // Success! Connection process is complete
-      // The useEffect watching for account changes will handle navigation
-      console.log('🎯 Connection successful, useEffect will handle navigation when account becomes available');
+      // Wait a bit for account state to update and check if it's available
+      console.log('⏳ Waiting for account state to update...');
       
-      // Fallback timeout in case useEffect doesn't trigger (should not be needed)
-      setTimeout(() => {
-        if (isConnecting) {
-          console.log('⏰ Timeout fallback - resetting connecting state');
+      let attempts = 0;
+      const maxAttempts = 20; // 10 seconds total
+      
+      const checkAccount = () => {
+        attempts++;
+        console.log(`🔍 Account check attempt ${attempts}:`, {
+          account: !!account,
+          address: account?.address,
+          status,
+          hasAccount: !!account
+        });
+        
+        if (account) {
+          console.log('🎯 Account detected! Navigation should happen via useEffect');
+          setIsConnecting(false);
+          return;
+        }
+        
+        if (attempts < maxAttempts) {
+          setTimeout(checkAccount, 500);
+        } else {
+          console.log('⏰ Account detection timeout - manual navigation fallback');
           setIsConnecting(false);
           toast({
-            title: "Session Created",
-            description: "Session was created. If you're not redirected automatically, try refreshing the page.",
-            variant: "default",
+            title: "Connection Timeout",
+            description: "Session may have been created but account detection timed out. Try refreshing the page.",
+            variant: "destructive",
           });
         }
-      }, 10000);
+      };
+      
+      setTimeout(checkAccount, 500);
       
     } catch (error) {
       console.error('❌ Connection failed:', error);
