@@ -20,11 +20,31 @@ const Index = () => {
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
   
-  // Find controller connector using the recommended approach
-  const controllerConnector = useMemo(
-    () => ControllerConnector.fromConnectors(connectors),
-    [connectors],
-  );
+  // Find controller connector using stable approach to avoid instance mismatch
+  const controllerConnector = useMemo(() => {
+    const connector = connectors.find(connector => connector instanceof ControllerConnector);
+    console.log('🎮 Found controller connector:', {
+      connector: !!connector,
+      connectorId: connector?.id,
+      connectorName: connector?.name,
+      totalConnectors: connectors.length
+    });
+    return connector;
+  }, [connectors]);
+  
+  // Debug connector consistency
+  useEffect(() => {
+    console.log('🔍 Connector analysis:', {
+      connectors: connectors.map(c => ({ id: c.id, name: c.name })),
+      controllerConnector: controllerConnector ? {
+        id: controllerConnector.id,
+        name: controllerConnector.name,
+        ready: controllerConnector.ready,
+        available: controllerConnector.available
+      } : null,
+      fromConnectorsResult: !!controllerConnector
+    });
+  }, [connectors, controllerConnector]);
   
   const { queueLength } = useRockPaperScissorsContract();
   const [isConnecting, setIsConnecting] = useState(false);
@@ -92,6 +112,17 @@ const Index = () => {
 
   // Simple connection handler as suggested
   const handlePlayClick = useCallback(async () => {
+    console.log('🎮 handlePlayClick called');
+    console.log('🔍 Current state before connect:', {
+      account: !!account,
+      address: account?.address,
+      isConnected,
+      isConnecting,
+      controllerConnector: !!controllerConnector,
+      connectorId: controllerConnector?.id,
+      connectorReady: controllerConnector?.ready
+    });
+
     // If already connected, proceed directly to game
     if (account) {
       console.log('🎯 Already connected, navigating to game...');
@@ -104,8 +135,20 @@ const Index = () => {
     setIsConnecting(true);
     
     try {
+      console.log('🔗 Calling connect...');
       await connect({ connector: controllerConnector });
       console.log('✅ Connect call completed');
+      
+      // Wait a moment for state to update
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      console.log('🔍 State after connect + delay:', {
+        account: !!account,
+        address: account?.address,
+        isConnected,
+        status,
+        connectorAccount: controllerConnector?.account,
+      });
       
       // Reset connecting state after successful connect
       setIsConnecting(false);
@@ -115,7 +158,37 @@ const Index = () => {
         console.log('🎯 Account available immediately after connect, navigating...');
         navigate('/game');
       } else {
-        console.log('⏳ Account not immediately available, useEffect will handle navigation...');
+        console.log('⏳ Account not immediately available, will poll for account...');
+        
+        // Start polling for account availability
+        let pollCount = 0;
+        const maxPolls = 20; // 10 seconds at 500ms intervals
+        
+        const pollForAccount = async () => {
+          pollCount++;
+          console.log(`🔄 Polling for account (${pollCount}/${maxPolls})...`);
+          
+          // Check if account is now available
+          if (account) {
+            console.log('🎯 Account detected during polling! Navigating...');
+            navigate('/game');
+            return;
+          }
+          
+          if (pollCount < maxPolls) {
+            setTimeout(pollForAccount, 500);
+          } else {
+            console.log('⏰ Account polling timeout - account never became available');
+            toast({
+              title: "Session Created",
+              description: "Session was created but account detection timed out. Try refreshing the page.",
+              variant: "default",
+            });
+          }
+        };
+        
+        // Start polling after a short delay
+        setTimeout(pollForAccount, 500);
       }
       
     } catch (error) {
@@ -127,7 +200,7 @@ const Index = () => {
         variant: "destructive",
       });
     }
-  }, [account, controllerConnector, connect, navigate, toast]);
+  }, [account, controllerConnector, connect, navigate, toast, isConnected, status]);
 
   const handleDisconnect = async () => {
     try {
