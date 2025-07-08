@@ -20,34 +20,13 @@ const Index = () => {
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
   
-  // Find controller connector using stable approach to avoid instance mismatch
-  const controllerConnector = useMemo(() => {
-    const connector = connectors.find(connector => connector instanceof ControllerConnector);
-    console.log('🎮 Found controller connector:', {
-      connector: !!connector,
-      connectorId: connector?.id,
-      connectorName: connector?.name,
-      totalConnectors: connectors.length
-    });
-    return connector;
-  }, [connectors]);
-  
-  // Debug connector consistency
-  useEffect(() => {
-    console.log('🔍 Connector analysis:', {
-      connectors: connectors.map(c => ({ id: c.id, name: c.name })),
-      controllerConnector: controllerConnector ? {
-        id: controllerConnector.id,
-        name: controllerConnector.name,
-        ready: controllerConnector.ready,
-        available: controllerConnector.available
-      } : null,
-      fromConnectorsResult: !!controllerConnector
-    });
-  }, [connectors, controllerConnector]);
+  // Use proper Cartridge Controller detection
+  const controllerConnector = useMemo(
+    () => ControllerConnector.fromConnectors(connectors),
+    [connectors],
+  );
   
   const { queueLength } = useRockPaperScissorsContract();
-  const [isConnecting, setIsConnecting] = useState(false);
   const [strkPrice, setStrkPrice] = useState<number | null>(null);
   const [isLoadingPrice, setIsLoadingPrice] = useState(true);
   const [entryFeeStrk, setEntryFeeStrk] = useState<string>("0");
@@ -56,42 +35,19 @@ const Index = () => {
   const isConnected = !!account;
   const isLoading = status === 'connecting' || status === 'reconnecting';
 
-  // Single console log to avoid spam
-  console.log('🔍 Component state:', {
-    account: !!account,
-    address: account?.address,
-    isConnected,
-    isConnecting,
-    isLoading,
-    hasControllerConnector: !!controllerConnector,
-    status
-  });
-
   // Auto-navigate when account becomes available
   useEffect(() => {
     if (account && account.address) {
-      console.log('🎯 Account with address available - immediate navigation to game!');
-      console.log('✅ Session details:', {
-        account: !!account,
-        address: account.address,
-        status,
-        timestamp: new Date().toISOString()
-      });
-      
-      // Reset connecting state
-      if (isConnecting) {
-        setIsConnecting(false);
-      }
+      console.log('🎯 Account available - navigating to game!');
       
       // Small delay to ensure account is fully ready, then navigate
       const navigationTimer = setTimeout(() => {
-        console.log('🚀 Navigating to game page...');
         navigate('/game');
       }, 500); // Very small delay for stability
       
       return () => clearTimeout(navigationTimer);
     }
-  }, [account, navigate, isConnecting, status]);
+  }, [account, navigate]);
 
 
 
@@ -120,48 +76,17 @@ const Index = () => {
     fetchStrkPrice();
   }, []);
 
-  // Simplified connection handler for automatic session creation and navigation
+  // Clean connection handler using proper Cartridge Controller detection
   const handlePlayClick = useCallback(async () => {
-    console.log('🎮 Play Now clicked');
-    
     // If already connected, proceed directly to game
-    if (account && account.address) {
-      console.log('🎯 Session exists, navigating to game...');
+    if (account) {
       navigate('/game');
       return;
     }
 
-    if (!controllerConnector) {
-      console.error('❌ Cartridge Controller not found');
-      toast({
-        title: "Connection Error",
-        description: "Cartridge Controller not available. Please refresh the page.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    console.log('🎮 Creating new Cartridge Controller session...');
-    setIsConnecting(true);
-    
-    try {
-      console.log('🔗 Opening Cartridge Controller for session creation...');
-      const connectResult = await connect({ connector: controllerConnector });
-      console.log('✅ Cartridge Controller session creation initiated:', connectResult);
-      
-      // The useEffect will handle automatic navigation when the account becomes available
-      console.log('🎯 Waiting for session to be established...');
-      
-    } catch (error) {
-      console.error('❌ Failed to create Cartridge Controller session:', error);
-      setIsConnecting(false);
-      toast({
-        title: "Session Creation Failed",
-        description: "Failed to create Cartridge Controller session. Please try again.",
-        variant: "destructive",
-      });
-    }
-  }, [account, controllerConnector, connect, navigate, toast]);
+    // Otherwise popup controller
+    connect({ connector: controllerConnector });
+  }, [account, controllerConnector, connect, navigate]);
 
   const handleDisconnect = async () => {
     try {
@@ -217,17 +142,7 @@ const Index = () => {
         </div>
       )}
       
-      {/* Session Creation Status */}
-      {isConnecting && (
-        <div className="text-center mb-8 px-4">
-          <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500/20 border border-blue-500/40 rounded-lg text-blue-400">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span className="text-sm font-medium">
-              Creating Cartridge Controller session...
-            </span>
-          </div>
-        </div>
-      )}
+
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col items-center px-4">
@@ -271,22 +186,17 @@ const Index = () => {
               <Button 
                 onClick={handlePlayClick}
                 size="lg"
-                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold px-8 py-4 text-lg shadow-lg transition-all duration-300 transform hover:scale-105"
-                disabled={isConnecting || !controllerConnector?.ready}
+                className="bg-gradient-to-r from-cyber-orange to-cyber-red hover:from-cyber-orange/80 hover:to-cyber-red/80 text-white font-bold px-12 py-6 text-xl shadow-lg transition-all duration-300 transform hover:scale-105 neon-text"
+                disabled={!controllerConnector}
               >
-                {isConnecting ? (
+                {account ? (
                   <>
-                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                    Creating Session...
-                  </>
-                ) : account ? (
-                  <>
-                    <Play className="mr-2 h-5 w-5" />
+                    <Play className="mr-3 h-6 w-6" />
                     Enter Game
                   </>
                 ) : (
                   <>
-                    <Play className="mr-2 h-5 w-5" />
+                    <Play className="mr-3 h-6 w-6" />
                     Play Now
                   </>
                 )}
