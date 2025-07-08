@@ -35,21 +35,56 @@ const Index = () => {
   const isConnected = !!account;
   const isLoading = status === 'connecting' || status === 'reconnecting';
 
-  // Auto-navigate when account becomes available
+  // Auto-navigate when account becomes available with detailed debugging
   useEffect(() => {
+    console.log('🔍 Navigation useEffect triggered:', {
+      account: !!account,
+      address: account?.address,
+      status,
+      isConnected,
+      timestamp: new Date().toISOString()
+    });
+    
     if (account && account.address) {
-      console.log('🎯 Account available - navigating to game!');
+      console.log('🎯 Account with address detected! Starting navigation...');
+      console.log('📊 Full account details:', {
+        account: account,
+        address: account.address,
+        hasAccount: !!account
+      });
       
       // Small delay to ensure account is fully ready, then navigate
       const navigationTimer = setTimeout(() => {
+        console.log('🚀 Executing navigation to /game');
         navigate('/game');
-      }, 500); // Very small delay for stability
+      }, 1000); // Increased delay to 1 second for better debugging
       
-      return () => clearTimeout(navigationTimer);
+      return () => {
+        console.log('🧹 Cleaning up navigation timer');
+        clearTimeout(navigationTimer);
+      };
+    } else if (account) {
+      console.log('⚠️ Account exists but no address:', {
+        account: !!account,
+        address: account?.address
+      });
+    } else {
+      console.log('❌ No account detected');
     }
-  }, [account, navigate]);
+  }, [account, account?.address, status, navigate]);
 
-
+  // Debug: Watch for all state changes
+  useEffect(() => {
+    console.log('🔄 State change detected:', {
+      account: !!account,
+      address: account?.address,
+      status,
+      isConnected,
+      isConnecting: status === 'connecting',
+      isReconnecting: status === 'reconnecting',
+      timestamp: new Date().toISOString()
+    });
+  }, [account, status, isConnected]);
 
   // Load STRK price on mount
   useEffect(() => {
@@ -76,17 +111,32 @@ const Index = () => {
     fetchStrkPrice();
   }, []);
 
-  // Clean connection handler using proper Cartridge Controller detection
+  // Clean connection handler using proper Cartridge Controller detection with debugging
   const handlePlayClick = useCallback(async () => {
+    console.log('🎮 Play Now clicked! Current state:', {
+      account: !!account,
+      address: account?.address,
+      status,
+      controllerConnector: !!controllerConnector,
+      connectorReady: controllerConnector?.ready
+    });
+    
     // If already connected, proceed directly to game
     if (account) {
+      console.log('✅ Already has account, navigating directly to game');
       navigate('/game');
       return;
     }
 
     // Otherwise popup controller
-    connect({ connector: controllerConnector });
-  }, [account, controllerConnector, connect, navigate]);
+    console.log('🔗 Opening Cartridge Controller popup...');
+    try {
+      const result = await connect({ connector: controllerConnector });
+      console.log('🎯 Connect result:', result);
+    } catch (error) {
+      console.error('❌ Connect failed:', error);
+    }
+  }, [account, controllerConnector, connect, navigate, status]);
 
   const handleDisconnect = async () => {
     try {
