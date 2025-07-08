@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Trophy, Zap } from 'lucide-react';
 import { useAccount } from '@starknet-react/core';
@@ -19,7 +19,7 @@ import { Move } from '../hooks/useRockPaperScissorsContract';
 
 const Game = () => {
   const navigate = useNavigate();
-  const { account, address, isConnected } = useAccount();
+  const { account, address, isConnected, status } = useAccount();
   
   const {
     gameStatus,
@@ -37,6 +37,9 @@ const Game = () => {
     forfeitGame,
     moveTimeoutStart,
   } = useRockPaperScissorsContract();
+
+  // Track how long we've been waiting for session
+  const [waitTime, setWaitTime] = useState(0);
 
   // Simplified session check - just account existence
   const hasSession = !!account;
@@ -57,17 +60,22 @@ const Game = () => {
     navigate('/');
   };
 
-  // Simple session validation - redirect if no account after 3 seconds
+  // Track wait time and only redirect after 10 seconds of no session
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (!hasSession) {
-        console.log('❌ No session after 3 seconds, redirecting to homepage');
-        navigate('/', { replace: true });
-      }
-    }, 3000);
+    const interval = setInterval(() => {
+      setWaitTime(prev => prev + 1);
+    }, 1000);
 
-    return () => clearTimeout(timer);
-  }, [hasSession, navigate]);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Much more patient session validation - wait 10 seconds before giving up
+  useEffect(() => {
+    if (!hasSession && waitTime >= 10) {
+      console.log('❌ No session after 10 seconds, redirecting to homepage');
+      navigate('/', { replace: true });
+    }
+  }, [hasSession, waitTime, navigate]);
 
   // Auto-join queue when session exists and game is idle
   useEffect(() => {
@@ -80,6 +88,19 @@ const Game = () => {
       return () => clearTimeout(timer);
     }
   }, [hasSession, gameStatus, joinQueue, error]);
+
+  // Debug logging for session state changes
+  useEffect(() => {
+    console.log('🔍 Game component session state:', {
+      account: !!account,
+      address: !!address,
+      isConnected,
+      status,
+      hasSession,
+      waitTime,
+      gameStatus
+    });
+  }, [account, address, isConnected, status, hasSession, waitTime, gameStatus]);
 
   return (
     <div className="min-h-screen flex flex-col relative">
@@ -124,9 +145,9 @@ const Game = () => {
           {process.env.NODE_ENV === 'development' && (
             <div className="text-center mb-4">
               <div className="inline-flex flex-col items-center gap-1 px-4 py-2 bg-gray-800/50 border border-gray-600/40 rounded text-xs text-gray-400">
-                <div>Game Status: {gameStatus}</div>
+                <div>Game Status: {gameStatus} | Wait Time: {waitTime}s</div>
                 <div>Account: {account ? '✅' : '❌'} | Address: {address ? '✅' : '❌'}</div>
-                <div>Connected: {isConnected.toString()}</div>
+                <div>Connected: {isConnected.toString()} | Status: {status}</div>
               </div>
             </div>
           )}
@@ -209,7 +230,7 @@ const Game = () => {
               <div className="animate-pulse">
                 <div className="w-16 h-16 border-4 border-cyber-blue/30 border-t-cyber-blue rounded-full animate-spin mx-auto mb-4" />
                 <h2 className="text-2xl font-bold text-cyber-blue mb-2">
-                  {hasSession ? 'Joining Matchmaking...' : 'Validating Session...'}
+                  {hasSession ? 'Joining Matchmaking...' : `Waiting for Session... (${waitTime}s)`}
                 </h2>
                 <p className="text-muted-foreground">
                   {hasSession ? 'Connecting to the game queue...' : 'Checking Cartridge Controller session...'}
@@ -219,8 +240,11 @@ const Game = () => {
                     Session: {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Connected'}
                   </p>
                 )}
-                {!hasSession && (
+                {!hasSession && waitTime < 10 && (
                   <div className="mt-4">
+                    <p className="text-xs text-gray-400 mb-2">
+                      Please wait while we establish your session... ({10 - waitTime}s remaining)
+                    </p>
                     <button
                       onClick={() => navigate('/', { replace: true })}
                       className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded font-medium"
