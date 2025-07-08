@@ -15,12 +15,10 @@ const Index = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
   
-  // Use standard starknet-react hooks
   const { account, address, status } = useAccount();
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
   
-  // Use proper Cartridge Controller detection
   const controllerConnector = useMemo(
     () => ControllerConnector.fromConnectors(connectors),
     [connectors],
@@ -31,60 +29,19 @@ const Index = () => {
   const [isLoadingPrice, setIsLoadingPrice] = useState(true);
   const [entryFeeStrk, setEntryFeeStrk] = useState<string>("0");
 
-  // Derived state - use simple account check
   const isConnected = !!account;
   const isLoading = status === 'connecting' || status === 'reconnecting';
 
-  // Auto-navigate when account becomes available with detailed debugging
+  // Auto-navigate when account becomes available
   useEffect(() => {
-    console.log('🔍 Navigation useEffect triggered:', {
-      account: !!account,
-      address: account?.address,
-      status,
-      isConnected,
-      timestamp: new Date().toISOString()
-    });
-    
     if (account && account.address) {
-      console.log('🎯 Account with address detected! Starting navigation...');
-      console.log('📊 Full account details:', {
-        account: account,
-        address: account.address,
-        hasAccount: !!account
-      });
-      
-      // Small delay to ensure account is fully ready, then navigate
       const navigationTimer = setTimeout(() => {
-        console.log('🚀 Executing navigation to /game');
         navigate('/game');
-      }, 1000); // Increased delay to 1 second for better debugging
+      }, 500);
       
-      return () => {
-        console.log('🧹 Cleaning up navigation timer');
-        clearTimeout(navigationTimer);
-      };
-    } else if (account) {
-      console.log('⚠️ Account exists but no address:', {
-        account: !!account,
-        address: account?.address
-      });
-    } else {
-      console.log('❌ No account detected');
+      return () => clearTimeout(navigationTimer);
     }
-  }, [account, account?.address, status, navigate]);
-
-  // Debug: Watch for all state changes
-  useEffect(() => {
-    console.log('🔄 State change detected:', {
-      account: !!account,
-      address: account?.address,
-      status,
-      isConnected,
-      isConnecting: status === 'connecting',
-      isReconnecting: status === 'reconnecting',
-      timestamp: new Date().toISOString()
-    });
-  }, [account, status, isConnected]);
+  }, [account, navigate]);
 
   // Load STRK price on mount
   useEffect(() => {
@@ -96,7 +53,6 @@ const Index = () => {
         const strkPriceUsd = parseFloat(data.data.rates.USD);
         setStrkPrice(strkPriceUsd);
         
-        // Calculate entry fee in STRK (assuming $1 entry fee)
         const entryFeeInStrk = (1 / strkPriceUsd).toFixed(4);
         setEntryFeeStrk(entryFeeInStrk);
       } catch (error) {
@@ -111,44 +67,33 @@ const Index = () => {
     fetchStrkPrice();
   }, []);
 
-  // Clean connection handler using proper Cartridge Controller detection with debugging
   const handlePlayClick = useCallback(async () => {
-    console.log('🎮 Play Now clicked! Current state:', {
-      account: !!account,
-      address: account?.address,
-      status,
-      controllerConnector: !!controllerConnector,
-      connectorReady: controllerConnector?.ready
-    });
-    
-    // If already connected, proceed directly to game
     if (account) {
-      console.log('✅ Already has account, navigating directly to game');
       navigate('/game');
       return;
     }
 
-    // Otherwise popup controller
-    console.log('🔗 Opening Cartridge Controller popup...');
     try {
-      const result = await connect({ connector: controllerConnector });
-      console.log('🎯 Connect result:', result);
+      await connect({ connector: controllerConnector });
     } catch (error) {
-      console.error('❌ Connect failed:', error);
+      console.error('Connect failed:', error);
+      toast({
+        title: "Connection Failed",
+        description: "Failed to connect to Cartridge Controller. Please try again.",
+        variant: "destructive",
+      });
     }
-  }, [account, controllerConnector, connect, navigate, status]);
+  }, [account, controllerConnector, connect, navigate, toast]);
 
   const handleDisconnect = async () => {
     try {
-      console.log('🔌 Disconnecting...');
       await disconnect();
-      
       toast({
         title: "Disconnected",
         description: "Successfully disconnected from wallet",
       });
-    } catch (error: unknown) {
-      console.error('❌ Failed to disconnect:', error);
+    } catch (error) {
+      console.error('Failed to disconnect:', error);
       toast({
         title: "Disconnect Failed",
         description: "Failed to disconnect. Please refresh the page.",

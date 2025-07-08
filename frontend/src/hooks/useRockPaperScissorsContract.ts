@@ -119,11 +119,6 @@ export const useRockPaperScissorsContract = () => {
   // Find the Cartridge Controller - use stable approach to avoid initialization issues
   const cartridgeConnector = useMemo(() => {
     const connector = connectors.find(connector => connector instanceof ControllerConnector);
-    console.log('🔍 Contract hook found controller:', {
-      connector: !!connector,
-      connectorId: connector?.id,
-      connectorName: connector?.name
-    });
     return connector;
   }, [connectors]);
   
@@ -156,41 +151,28 @@ export const useRockPaperScissorsContract = () => {
       throw new Error('Cartridge Controller not found');
     }
     
-    console.log('🔍 Cartridge connector state:', {
-      id: cartridgeConnector.id,
-      available: cartridgeConnector.available,
-      ready: cartridgeConnector.ready
-    });
-    
     // Try to get the account, with retry logic if it fails
     let lastError;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        console.log(`🔗 Attempt ${attempt}: Getting account from Cartridge Controller...`);
         const account = await cartridgeConnector.account(readProvider);
-        console.log('✅ Successfully retrieved Cartridge account:', account.address);
         return account;
       } catch (accountError) {
-        console.warn(`❌ Attempt ${attempt} failed:`, accountError);
         lastError = accountError;
         
         // If not the last attempt, try to reconnect
         if (attempt < 3) {
           try {
-            console.log('🔄 Attempting to reconnect Cartridge Controller...');
             await cartridgeConnector.connect();
-            console.log('✅ Cartridge Controller reconnected');
-            // Wait a bit before next attempt
             await new Promise(resolve => setTimeout(resolve, 1000));
           } catch (connectError) {
-            console.warn('❌ Reconnection failed:', connectError);
+            // Continue to next attempt
           }
         }
       }
     }
     
     // If all attempts failed, throw the last error
-    console.error('❌ All attempts to get Cartridge account failed:', lastError);
     const errorMessage = lastError instanceof Error ? lastError.message : 'Unknown error';
     throw new Error(`Failed to access Cartridge Controller: ${errorMessage}. Please refresh the page and try again.`);
   }, [cartridgeConnector, readProvider]);
@@ -304,19 +286,14 @@ export const useRockPaperScissorsContract = () => {
     try {
       setIsLoading(true);
       setError(null);
-      console.log('🎮 Joining matchmaking queue...');
 
       // Check if user has an address (session) first
       if (!address) {
         throw new Error('No active Cartridge Controller session. Please return to homepage and create a session first.');
       }
       
-      console.log('✅ Session validated, address:', address);
-      
       // Get account directly from Cartridge Controller
       const account = await getCartridgeAccount();
-      
-      console.log('🎮 Using Cartridge account:', account);
       
       // Real contract call to join queue
       const result = await account.execute({
@@ -325,13 +302,10 @@ export const useRockPaperScissorsContract = () => {
         calldata: []
       });
       
-      console.log('Queue join transaction:', result.transaction_hash);
-      
       // Wait for transaction to be accepted
       await readProvider.waitForTransaction(result.transaction_hash);
       
       setGameStatus('queue');
-      console.log('✅ Successfully joined queue');
       
       // Start polling for game start
       const pollForGame = async () => {

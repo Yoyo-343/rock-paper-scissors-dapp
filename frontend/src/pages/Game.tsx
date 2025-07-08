@@ -19,7 +19,7 @@ import { Move } from '../hooks/useRockPaperScissorsContract';
 
 const Game = () => {
   const navigate = useNavigate();
-  const { account, address } = useAccount();
+  const { account } = useAccount();
   
   const {
     gameStatus,
@@ -57,43 +57,21 @@ const Game = () => {
   // Session validation - redirect to homepage if no account
   useEffect(() => {
     if (!account) {
-      console.log('❌ No Cartridge session detected, redirecting to homepage...');
       navigate('/', { replace: true });
       return;
     }
-    
-    console.log('✅ Cartridge session detected:', {
-      account: !!account,
-      address: account?.address,
-    });
   }, [account, navigate]);
 
-  // Enhanced auto-join logic - only join if account exists
+  // Auto-join queue when account is available
   useEffect(() => {
     if (account && gameStatus === 'idle' && !error) {
-      console.log('🎮 Account available, auto-joining queue...');
-      // Small delay to ensure everything is ready
       const timer = setTimeout(() => {
-        console.log('🎮 Attempting to join matchmaking queue...');
         joinQueue();
-      }, 1500); // Slightly longer delay for stability
+      }, 1000);
       
       return () => clearTimeout(timer);
     }
   }, [account, gameStatus, joinQueue, error]);
-
-  // Debug logging
-  useEffect(() => {
-    console.log('🎮 Game state debug:', {
-      gameStatus,
-      playerWins,
-      opponentWins,
-      currentRound,
-      error,
-      playerMove,
-      opponentMove
-    });
-  }, [gameStatus, playerWins, opponentWins, currentRound, error, playerMove, opponentMove]);
 
   return (
     <div className="min-h-screen flex flex-col relative">
@@ -110,20 +88,14 @@ const Game = () => {
                 <div className="flex gap-2">
                   {account ? (
                     <button
-                      onClick={() => {
-                        console.log('🔄 Manual retry - attempting to join queue...');
-                        joinQueue();
-                      }}
+                      onClick={() => joinQueue()}
                       className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded font-medium"
                     >
                       Try Again
                     </button>
                   ) : (
                     <button
-                      onClick={() => {
-                        console.log('🏠 No session - redirecting to homepage...');
-                        navigate('/', { replace: true });
-                      }}
+                      onClick={() => navigate('/', { replace: true })}
                       className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded font-medium"
                     >
                       Create Session
@@ -139,13 +111,6 @@ const Game = () => {
               </div>
             </div>
           )}
-
-          {/* Debug info - remove in production */}
-          <div className="text-center mb-4">
-            <div className="inline-flex items-center gap-2 px-3 py-1 bg-gray-800/50 border border-gray-600/40 rounded text-xs text-gray-400">
-              <span>Debug: Status = {gameStatus}</span>
-            </div>
-          </div>
 
           {/* Back Button */}
           <div className="mb-6">
@@ -188,10 +153,7 @@ const Game = () => {
                 <CountdownTimer 
                   startTime={moveTimeoutStart} 
                   timeoutSeconds={30}
-                  onTimeout={() => {
-                    console.log('⏰ Move selection timeout');
-                    forfeitGame();
-                  }}
+                  onTimeout={() => forfeitGame()}
                 />
               </div>
               <MoveSelection onMoveSelect={handleMoveSelect} />
@@ -219,7 +181,6 @@ const Game = () => {
               opponentName={opponentName}
               onContinue={() => {
                 // The contract hook will automatically transition to the next round
-                console.log('📈 Continuing to next round...');
               }}
             />
           )}
@@ -246,7 +207,7 @@ const Game = () => {
                 </p>
                 {account && (
                   <p className="text-xs text-cyber-blue/70 mt-2">
-                    Session: {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Connected'}
+                    Session: {account?.address ? `${account.address.slice(0, 6)}...${account.address.slice(-4)}` : 'Connected'}
                   </p>
                 )}
               </div>
@@ -261,7 +222,6 @@ const Game = () => {
                 <p className="text-sm">Status: {gameStatus}</p>
                 <button 
                   onClick={() => {
-                    console.log('🔄 Attempting to rejoin queue...');
                     joinQueue();
                   }}
                   className="cyber-button text-sm px-4 py-2"
