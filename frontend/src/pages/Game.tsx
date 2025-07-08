@@ -38,10 +38,8 @@ const Game = () => {
     moveTimeoutStart,
   } = useRockPaperScissorsContract();
 
-  // Enhanced session validation
-  const hasValidSession = useMemo(() => {
-    return !!(account && address && isConnected);
-  }, [account, address, isConnected]);
+  // Simplified session check - just account existence
+  const hasSession = !!account;
 
   // Handle move selection
   const handleMoveSelect = (move: Move) => {
@@ -59,32 +57,29 @@ const Game = () => {
     navigate('/');
   };
 
-  // Enhanced session validation - redirect to homepage if no valid session
+  // Simple session validation - redirect if no account after 3 seconds
   useEffect(() => {
-    if (!hasValidSession) {
-      console.log('❌ No valid Cartridge session detected, redirecting to homepage...');
-      navigate('/', { replace: true });
-      return;
-    }
-    
-    console.log('✅ Valid Cartridge session detected in Game component:', {
-      account: !!account,
-      address: !!address,
-      isConnected
-    });
-  }, [hasValidSession, navigate, account, address, isConnected]);
+    const timer = setTimeout(() => {
+      if (!hasSession) {
+        console.log('❌ No session after 3 seconds, redirecting to homepage');
+        navigate('/', { replace: true });
+      }
+    }, 3000);
 
-  // Auto-join queue when session is valid and game is idle
+    return () => clearTimeout(timer);
+  }, [hasSession, navigate]);
+
+  // Auto-join queue when session exists and game is idle
   useEffect(() => {
-    if (hasValidSession && gameStatus === 'idle' && !error) {
-      console.log('🎮 Valid session and idle state - auto-joining queue...');
+    if (hasSession && gameStatus === 'idle' && !error) {
+      console.log('🎮 Session exists and idle state - auto-joining queue...');
       const timer = setTimeout(() => {
         joinQueue();
       }, 1000);
       
       return () => clearTimeout(timer);
     }
-  }, [hasValidSession, gameStatus, joinQueue, error]);
+  }, [hasSession, gameStatus, joinQueue, error]);
 
   return (
     <div className="min-h-screen flex flex-col relative">
@@ -99,7 +94,7 @@ const Game = () => {
               <div className="inline-flex flex-col items-center gap-4 px-6 py-4 bg-red-500/20 border border-red-500/40 rounded-lg text-red-400 max-w-md mx-auto">
                 <span className="text-sm font-medium">Error: {error}</span>
                 <div className="flex gap-2">
-                  {hasValidSession ? (
+                  {hasSession ? (
                     <button
                       onClick={() => joinQueue()}
                       className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded font-medium"
@@ -121,6 +116,17 @@ const Game = () => {
                     Refresh Page
                   </button>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Debug Info */}
+          {process.env.NODE_ENV === 'development' && (
+            <div className="text-center mb-4">
+              <div className="inline-flex flex-col items-center gap-1 px-4 py-2 bg-gray-800/50 border border-gray-600/40 rounded text-xs text-gray-400">
+                <div>Game Status: {gameStatus}</div>
+                <div>Account: {account ? '✅' : '❌'} | Address: {address ? '✅' : '❌'}</div>
+                <div>Connected: {isConnected.toString()}</div>
               </div>
             </div>
           )}
@@ -197,21 +203,31 @@ const Game = () => {
             />
           )}
 
-          {/* Fallback for unknown states */}
+          {/* Loading/Idle State */}
           {gameStatus === 'idle' && (
             <div className="text-center">
               <div className="animate-pulse">
                 <div className="w-16 h-16 border-4 border-cyber-blue/30 border-t-cyber-blue rounded-full animate-spin mx-auto mb-4" />
                 <h2 className="text-2xl font-bold text-cyber-blue mb-2">
-                  {hasValidSession ? 'Joining Matchmaking...' : 'Validating Session...'}
+                  {hasSession ? 'Joining Matchmaking...' : 'Validating Session...'}
                 </h2>
                 <p className="text-muted-foreground">
-                  {hasValidSession ? 'Connecting to the game queue...' : 'Checking Cartridge Controller session...'}
+                  {hasSession ? 'Connecting to the game queue...' : 'Checking Cartridge Controller session...'}
                 </p>
-                {hasValidSession && (
+                {hasSession && (
                   <p className="text-xs text-cyber-blue/70 mt-2">
                     Session: {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Connected'}
                   </p>
+                )}
+                {!hasSession && (
+                  <div className="mt-4">
+                    <button
+                      onClick={() => navigate('/', { replace: true })}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded font-medium"
+                    >
+                      Return to Homepage
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
