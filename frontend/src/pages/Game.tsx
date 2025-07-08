@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Trophy, Zap } from 'lucide-react';
 import { useAccount } from '@starknet-react/core';
@@ -19,7 +19,7 @@ import { Move } from '../hooks/useRockPaperScissorsContract';
 
 const Game = () => {
   const navigate = useNavigate();
-  const { account } = useAccount();
+  const { account, address, isConnected } = useAccount();
   
   const {
     gameStatus,
@@ -38,6 +38,11 @@ const Game = () => {
     moveTimeoutStart,
   } = useRockPaperScissorsContract();
 
+  // Enhanced session validation
+  const hasValidSession = useMemo(() => {
+    return !!(account && address && isConnected);
+  }, [account, address, isConnected]);
+
   // Handle move selection
   const handleMoveSelect = (move: Move) => {
     submitMove(move);
@@ -54,24 +59,32 @@ const Game = () => {
     navigate('/');
   };
 
-  // Session validation - redirect to homepage if no account
+  // Enhanced session validation - redirect to homepage if no valid session
   useEffect(() => {
-    if (!account) {
+    if (!hasValidSession) {
+      console.log('❌ No valid Cartridge session detected, redirecting to homepage...');
       navigate('/', { replace: true });
       return;
     }
-  }, [account, navigate]);
+    
+    console.log('✅ Valid Cartridge session detected in Game component:', {
+      account: !!account,
+      address: !!address,
+      isConnected
+    });
+  }, [hasValidSession, navigate, account, address, isConnected]);
 
-  // Auto-join queue when account is available
+  // Auto-join queue when session is valid and game is idle
   useEffect(() => {
-    if (account && gameStatus === 'idle' && !error) {
+    if (hasValidSession && gameStatus === 'idle' && !error) {
+      console.log('🎮 Valid session and idle state - auto-joining queue...');
       const timer = setTimeout(() => {
         joinQueue();
       }, 1000);
       
       return () => clearTimeout(timer);
     }
-  }, [account, gameStatus, joinQueue, error]);
+  }, [hasValidSession, gameStatus, joinQueue, error]);
 
   return (
     <div className="min-h-screen flex flex-col relative">
@@ -86,7 +99,7 @@ const Game = () => {
               <div className="inline-flex flex-col items-center gap-4 px-6 py-4 bg-red-500/20 border border-red-500/40 rounded-lg text-red-400 max-w-md mx-auto">
                 <span className="text-sm font-medium">Error: {error}</span>
                 <div className="flex gap-2">
-                  {account ? (
+                  {hasValidSession ? (
                     <button
                       onClick={() => joinQueue()}
                       className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded font-medium"
@@ -160,16 +173,6 @@ const Game = () => {
             </div>
           )}
 
-          {gameStatus === 'waiting_for_reveal' && (
-            <div className="text-center">
-              <div className="animate-pulse">
-                <Zap className="w-16 h-16 text-cyber-orange mx-auto mb-4" />
-                <h2 className="text-2xl font-bold text-cyber-orange mb-2">Waiting for opponent...</h2>
-                <p className="text-muted-foreground">Your move: <span className="text-cyber-orange font-semibold capitalize">{playerMove}</span></p>
-              </div>
-            </div>
-          )}
-
           {gameStatus === 'round_result' && (
             <RoundResult 
               playerMove={playerMove!}
@@ -200,14 +203,14 @@ const Game = () => {
               <div className="animate-pulse">
                 <div className="w-16 h-16 border-4 border-cyber-blue/30 border-t-cyber-blue rounded-full animate-spin mx-auto mb-4" />
                 <h2 className="text-2xl font-bold text-cyber-blue mb-2">
-                  {account ? 'Joining Matchmaking...' : 'Checking Session...'}
+                  {hasValidSession ? 'Joining Matchmaking...' : 'Validating Session...'}
                 </h2>
                 <p className="text-muted-foreground">
-                  {account ? 'Connecting to the game queue...' : 'Validating Cartridge Controller session...'}
+                  {hasValidSession ? 'Connecting to the game queue...' : 'Checking Cartridge Controller session...'}
                 </p>
-                {account && (
+                {hasValidSession && (
                   <p className="text-xs text-cyber-blue/70 mt-2">
-                    Session: {account?.address ? `${account.address.slice(0, 6)}...${account.address.slice(-4)}` : 'Connected'}
+                    Session: {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Connected'}
                   </p>
                 )}
               </div>
@@ -217,16 +220,15 @@ const Game = () => {
           {/* Handle unexpected states */}
           {!['idle', 'queue', 'waiting_for_opponent', 'selecting_move', 'waiting_for_reveal', 'round_result', 'game_complete'].includes(gameStatus) && (
             <div className="text-center">
-              <div className="inline-flex flex-col items-center gap-4 px-6 py-4 bg-yellow-500/20 border border-yellow-500/40 rounded-lg text-yellow-400">
-                <h3 className="text-lg font-semibold">Unknown Game State</h3>
-                <p className="text-sm">Status: {gameStatus}</p>
+              <div className="inline-flex flex-col items-center gap-4 px-6 py-4 bg-yellow-500/20 border border-yellow-500/40 rounded-lg text-yellow-400 max-w-md mx-auto">
+                <span className="text-sm font-medium">Unknown game state: {gameStatus}</span>
                 <button 
                   onClick={() => {
                     joinQueue();
                   }}
-                  className="cyber-button text-sm px-4 py-2"
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded font-medium"
                 >
-                  Try to Join Queue
+                  Restart Game
                 </button>
               </div>
             </div>
@@ -234,7 +236,6 @@ const Game = () => {
 
         </div>
       </div>
-      
       <Footer />
     </div>
   );

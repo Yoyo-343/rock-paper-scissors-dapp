@@ -15,7 +15,7 @@ const Index = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
   
-  const { account, address, status } = useAccount();
+  const { account, address, status, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
   
@@ -28,20 +28,58 @@ const Index = () => {
   const [strkPrice, setStrkPrice] = useState<number | null>(null);
   const [isLoadingPrice, setIsLoadingPrice] = useState(true);
   const [entryFeeStrk, setEntryFeeStrk] = useState<string>("0");
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [showManualNavigation, setShowManualNavigation] = useState(false);
 
-  const isConnected = !!account;
-  const isLoading = status === 'connecting' || status === 'reconnecting';
+  // More robust connection detection
+  const hasValidSession = useMemo(() => {
+    return !!(account && address && isConnected);
+  }, [account, address, isConnected]);
 
-  // Auto-navigate when account becomes available
+  // Enhanced navigation logic with multiple triggers
   useEffect(() => {
-    if (account && account.address) {
-      const navigationTimer = setTimeout(() => {
-        navigate('/game');
-      }, 500);
+    // Only navigate if we have a complete, valid session
+    if (hasValidSession && !isConnecting) {
+      console.log('✅ Valid session detected, navigating to game:', {
+        account: !!account,
+        address: !!address,
+        isConnected,
+        status
+      });
       
-      return () => clearTimeout(navigationTimer);
+      // Hide manual navigation button since we're auto-navigating
+      setShowManualNavigation(false);
+      
+      // Navigate immediately - no delay needed for valid sessions
+      navigate('/game');
+    } else if (hasValidSession && isConnecting) {
+      // Connection successful but auto-navigation might be delayed
+      // Show manual option after a few seconds
+      const fallbackTimer = setTimeout(() => {
+        console.log('⚠️ Auto-navigation taking too long, showing manual option');
+        setShowManualNavigation(true);
+        setIsConnecting(false);
+      }, 5000); // 5 second fallback
+      
+      return () => clearTimeout(fallbackTimer);
     }
-  }, [account, navigate]);
+  }, [hasValidSession, isConnecting, navigate, account, address, isConnected, status]);
+
+  // Watch for connection status changes
+  useEffect(() => {
+    console.log('🔄 Connection state changed:', {
+      status,
+      isConnected,
+      hasAccount: !!account,
+      hasAddress: !!address,
+      isConnecting
+    });
+
+    // Reset connecting state when connection completes (success or failure)
+    if (isConnecting && status !== 'connecting') {
+      setIsConnecting(false);
+    }
+  }, [status, isConnected, account, address, isConnecting]);
 
   // Load STRK price on mount
   useEffect(() => {
@@ -68,22 +106,71 @@ const Index = () => {
   }, []);
 
   const handlePlayClick = useCallback(async () => {
-    if (account) {
+    // If already connected with valid session, go directly to game
+    if (hasValidSession) {
+      console.log('🎯 Already connected, navigating to game...');
       navigate('/game');
       return;
     }
 
+    // If no controller connector available, show error
+    if (!controllerConnector) {
+      console.log('❌ No controller connector found');
+      toast({
+        title: "Controller Not Available",
+        description: "Cartridge Controller not found. Please refresh the page.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    console.log('🎮 Starting connection process...', {
+      controllerConnector: !!controllerConnector,
+      connectorId: controllerConnector.id,
+      currentAccount: !!account,
+      currentAddress: !!address,
+      currentIsConnected: isConnected,
+      currentStatus: status
+    });
+    
+    setIsConnecting(true);
+
     try {
-      await connect({ connector: controllerConnector });
+      // Attempt connection
+      console.log('📞 Calling connect...');
+      const result = await connect({ connector: controllerConnector });
+      console.log('🔗 Connection result:', result);
+
+      // Connection initiated successfully
+      // The useEffect will handle navigation when account state updates
+      console.log('✅ Connect call completed, waiting for account state to update...');
+      
     } catch (error) {
-      console.error('Connect failed:', error);
+      console.error('❌ Connection failed:', error);
+      setIsConnecting(false);
+      
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       toast({
         title: "Connection Failed",
-        description: "Failed to connect to Cartridge Controller. Please try again.",
+        description: `Failed to connect: ${errorMessage}`,
         variant: "destructive",
       });
     }
-  }, [account, controllerConnector, connect, navigate, toast]);
+  }, [hasValidSession, controllerConnector, connect, navigate, toast, account, address, isConnected, status]);
+
+  // Debug output for connection status (temporary)
+  useEffect(() => {
+    console.log('🐛 Debug - Full connection state:', {
+      account: !!account,
+      accountAddress: account?.address,
+      address: address,
+      isConnected,
+      status,
+      hasValidSession,
+      isConnecting,
+      controllerConnectorReady: controllerConnector?.ready
+    });
+  }, [account, address, isConnected, status, hasValidSession, isConnecting, controllerConnector]);
 
   const handleDisconnect = async () => {
     try {
@@ -100,6 +187,12 @@ const Index = () => {
         variant: "destructive",
       });
     }
+  };
+
+  const handleManualNavigation = () => {
+    console.log('🎯 Manual navigation triggered');
+    setShowManualNavigation(false);
+    navigate('/game');
   };
 
   return (
@@ -120,7 +213,7 @@ const Index = () => {
       </header>
 
       {/* Session Status */}
-      {isConnected && address && (
+      {hasValidSession && (
         <div className="text-center mb-8 px-4">
           <div className="inline-flex items-center gap-2 px-4 py-2 bg-green-500/20 border border-green-500/40 rounded-lg text-green-400">
             <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
@@ -136,8 +229,38 @@ const Index = () => {
           </div>
         </div>
       )}
-      
 
+      {/* Connection Status */}
+      {isConnecting && (
+        <div className="text-center mb-8 px-4">
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500/20 border border-blue-500/40 rounded-lg text-blue-400">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span className="text-sm font-medium">
+              Creating Cartridge Controller session...
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Navigation Fallback */}
+      {showManualNavigation && hasValidSession && (
+        <div className="text-center mb-8 px-4">
+          <div className="inline-flex flex-col items-center gap-4 px-6 py-4 bg-green-500/20 border border-green-500/40 rounded-lg text-green-400 max-w-md mx-auto">
+            <span className="text-sm font-medium">
+              ✅ Session created successfully! 
+            </span>
+            <span className="text-xs text-gray-300">
+              Auto-navigation didn't work? Click below to continue manually.
+            </span>
+            <Button
+              onClick={handleManualNavigation}
+              className="bg-green-600 hover:bg-green-700 text-white font-semibold px-6 py-2"
+            >
+              Continue to Game →
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col items-center px-4">
@@ -182,9 +305,14 @@ const Index = () => {
                 onClick={handlePlayClick}
                 size="lg"
                 className="bg-gradient-to-r from-cyber-orange to-cyber-red hover:from-cyber-orange/80 hover:to-cyber-red/80 text-white font-bold px-12 py-6 text-xl shadow-lg transition-all duration-300 transform hover:scale-105 neon-text"
-                disabled={!controllerConnector}
+                disabled={isConnecting || !controllerConnector}
               >
-                {account ? (
+                {isConnecting ? (
+                  <>
+                    <Loader2 className="mr-3 h-6 w-6 animate-spin" />
+                    Creating Session...
+                  </>
+                ) : hasValidSession ? (
                   <>
                     <Play className="mr-3 h-6 w-6" />
                     Enter Game
@@ -209,7 +337,6 @@ const Index = () => {
                   Refresh
                 </Button>
               )}
-
             </div>
           </div>
         </div>
