@@ -92,12 +92,7 @@ const PhaseIndicator: React.FC<PhaseIndicatorProps> = ({ currentPhase }) => {
         })}
       </div>
       
-      {/* Current Phase Status */}
-      <div className="mt-6 text-center">
-        <p className="text-cyber-orange font-medium">
-          {phases[currentPhase - 1]?.label}
-        </p>
-      </div>
+
     </div>
   );
 };
