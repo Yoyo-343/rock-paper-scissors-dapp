@@ -13,6 +13,7 @@ import MoveSelection from '../components/game/MoveSelection';
 import RoundResult from '../components/game/RoundResult';
 import GameComplete from '../components/game/GameComplete';
 import CountdownTimer from '../components/game/CountdownTimer';
+import PhaseIndicator from '../components/game/PhaseIndicator';
 
 // Types
 import { Move } from '../hooks/useRockPaperScissorsContract';
@@ -43,6 +44,15 @@ const Game = () => {
 
   // Simplified session check - just account existence
   const hasSession = !!account;
+
+  // Determine current phase based on session and game state
+  const getCurrentPhase = (): 1 | 2 | 3 => {
+    if (!hasSession) return 1; // Checking Cartridge Controller session
+    if (gameStatus === 'idle' || gameStatus === 'queue') return 2; // Finding an opponent
+    return 3; // Launching game
+  };
+
+  const currentPhase = getCurrentPhase();
 
   // Handle move selection
   const handleMoveSelect = (move: Move) => {
@@ -98,9 +108,10 @@ const Game = () => {
       status,
       hasSession,
       waitTime,
-      gameStatus
+      gameStatus,
+      currentPhase
     });
-  }, [account, address, isConnected, status, hasSession, waitTime, gameStatus]);
+  }, [account, address, isConnected, status, hasSession, waitTime, gameStatus, currentPhase]);
 
   return (
     <div className="min-h-screen flex flex-col relative">
@@ -145,7 +156,7 @@ const Game = () => {
           {process.env.NODE_ENV === 'development' && (
             <div className="text-center mb-4">
               <div className="inline-flex flex-col items-center gap-1 px-4 py-2 bg-gray-800/50 border border-gray-600/40 rounded text-xs text-gray-400">
-                <div>Game Status: {gameStatus} | Wait Time: {waitTime}s</div>
+                <div>Game Status: {gameStatus} | Phase: {currentPhase} | Wait: {waitTime}s</div>
                 <div>Account: {account ? '✅' : '❌'} | Address: {address ? '✅' : '❌'}</div>
                 <div>Connected: {isConnected.toString()} | Status: {status}</div>
               </div>
@@ -163,20 +174,41 @@ const Game = () => {
             </button>
           </div>
 
-          {/* Game Status Display */}
-          <div className="text-center mb-8">
-            <div className="flex justify-center items-center gap-6 mb-4">
-              <div className="flex items-center gap-2">
-                <Trophy className="w-5 h-5 text-cyber-gold" />
-                <span className="text-cyber-gold font-semibold">You: {playerWins}</span>
-              </div>
-              <div className="text-2xl font-bold text-cyber-orange">Round {currentRound}</div>
-              <div className="flex items-center gap-2">
-                <Trophy className="w-5 h-5 text-cyber-purple" />
-                <span className="text-cyber-purple font-semibold">Opponent: {opponentWins}</span>
+          {/* Show Phase Indicator for setup phases */}
+          {(gameStatus === 'idle' || gameStatus === 'queue') && (
+            <div className="text-center mb-8">
+              <PhaseIndicator currentPhase={currentPhase} />
+              
+              {/* Emergency exit option after 10 seconds */}
+              {!hasSession && waitTime >= 10 && (
+                <div className="mt-6">
+                  <button
+                    onClick={() => navigate('/', { replace: true })}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded font-medium"
+                  >
+                    Return to Homepage
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Game Status Display - only show when in active game */}
+          {!['idle', 'queue'].includes(gameStatus) && (
+            <div className="text-center mb-8">
+              <div className="flex justify-center items-center gap-6 mb-4">
+                <div className="flex items-center gap-2">
+                  <Trophy className="w-5 h-5 text-cyber-gold" />
+                  <span className="text-cyber-gold font-semibold">You: {playerWins}</span>
+                </div>
+                <div className="text-2xl font-bold text-cyber-orange">Round {currentRound}</div>
+                <div className="flex items-center gap-2">
+                  <Trophy className="w-5 h-5 text-cyber-purple" />
+                  <span className="text-cyber-purple font-semibold">Opponent: {opponentWins}</span>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Game State Components */}
           {gameStatus === 'queue' && (
@@ -222,39 +254,6 @@ const Game = () => {
               opponentScore={opponentWins}
               onComplete={handleGameComplete}
             />
-          )}
-
-          {/* Loading/Idle State */}
-          {gameStatus === 'idle' && (
-            <div className="text-center">
-              <div className="animate-pulse">
-                <div className="w-16 h-16 border-4 border-cyber-blue/30 border-t-cyber-blue rounded-full animate-spin mx-auto mb-4" />
-                <h2 className="text-2xl font-bold text-cyber-blue mb-2">
-                  {hasSession ? 'Joining Matchmaking...' : `Waiting for Session... (${waitTime}s)`}
-                </h2>
-                <p className="text-muted-foreground">
-                  {hasSession ? 'Connecting to the game queue...' : 'Checking Cartridge Controller session...'}
-                </p>
-                {hasSession && (
-                  <p className="text-xs text-cyber-blue/70 mt-2">
-                    Session: {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Connected'}
-                  </p>
-                )}
-                {!hasSession && waitTime < 10 && (
-                  <div className="mt-4">
-                    <p className="text-xs text-gray-400 mb-2">
-                      Please wait while we establish your session... ({10 - waitTime}s remaining)
-                    </p>
-                    <button
-                      onClick={() => navigate('/', { replace: true })}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded font-medium"
-                    >
-                      Return to Homepage
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
           )}
 
           {/* Handle unexpected states */}
