@@ -263,7 +263,7 @@ const Index = () => {
               <Button 
                 onClick={handlePlayClick}
                 size="lg"
-                className="bg-gradient-to-r from-cyber-orange to-cyber-red hover:from-cyber-orange/80 hover:to-cyber-red/80 text-white font-bold px-12 py-6 text-xl shadow-lg transition-all duration-300 transform hover:scale-105 neon-text"
+                className="bg-gradient-to-r from-cyber-orange to-cyber-red hover:from-cyber-orange/80 hover:to-cyber-red/80 text-white font-bold px-16 py-6 text-xl shadow-lg transition-all duration-300 transform hover:scale-105"
                 disabled={isConnecting || !controllerConnector}
               >
                 {isConnecting ? (
