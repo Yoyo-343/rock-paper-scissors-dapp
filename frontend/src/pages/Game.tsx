@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Trophy, Zap } from 'lucide-react';
-import { useAccount } from '@starknet-react/core';
+import { useDojo } from '../providers/DojoProvider';
 import { useRockPaperScissorsContract } from '../hooks/useRockPaperScissorsContract';
 
 // Components
@@ -20,7 +20,9 @@ import { Move } from '../hooks/useRockPaperScissorsContract';
 
 const Game = () => {
   const navigate = useNavigate();
-  const { account, address, isConnected, status } = useAccount();
+  
+  // Use the new Dojo context for enhanced session management
+  const { account, address, isConnected, sessionValid, error: dojoError } = useDojo();
   
   const {
     gameStatus,
@@ -44,30 +46,30 @@ const Game = () => {
   const [hasAttemptedSessionValidation, setHasAttemptedSessionValidation] = useState(false);
   const [debugInfo, setDebugInfo] = useState<string>('');
 
-  // Enhanced session validation with better timing and debugging
+  // Enhanced session validation with Dojo integration
   const hasValidSession = useMemo(() => {
-    const sessionValid = !!(account && address && isConnected);
+    const isSessionValid = !!(account && address && isConnected && sessionValid);
     
     // Create debug info
-    const debug = `Account: ${!!account}, Address: ${!!address}, Connected: ${isConnected}, Status: ${status}`;
+    const debug = `Account: ${!!account}, Address: ${!!address}, Connected: ${isConnected}, DojoSession: ${sessionValid}`;
     setDebugInfo(debug);
     
     // Mark that we've attempted validation
     if (!hasAttemptedSessionValidation) {
       setHasAttemptedSessionValidation(true);
-      console.log('🔍 First session validation attempt:', debug);
+      console.log('🔍 First Dojo session validation attempt:', debug);
     }
     
-    if (sessionValid) {
-      console.log('✅ Valid session confirmed:', debug);
+    if (isSessionValid) {
+      console.log('✅ Valid Dojo session confirmed:', debug);
     }
     
-    return sessionValid;
-  }, [account, address, isConnected, status, hasAttemptedSessionValidation]);
+    return isSessionValid;
+  }, [account, address, isConnected, sessionValid, hasAttemptedSessionValidation]);
 
-  // Determine current phase for PhaseIndicator
+  // Determine current phase for PhaseIndicator - Enhanced for Dojo
   const getCurrentPhase = (): 1 | 2 | 3 => {
-    if (!hasValidSession) return 1; // Checking Cartridge Controller session
+    if (!hasValidSession) return 1; // Checking Dojo session
     if (gameStatus === 'idle' || gameStatus === 'queue') return 2; // Finding an opponent
     return 3; // Launching game
   };
@@ -104,16 +106,16 @@ const Game = () => {
     }
   }, [hasValidSession]);
 
-  // More patient session validation - wait 20 seconds before giving up
+  // More patient session validation - wait 15 seconds before giving up
   useEffect(() => {
-    if (!hasValidSession && waitTime >= 20) {
-      console.log('❌ No valid session after 20 seconds, redirecting to homepage');
+    if (!hasValidSession && waitTime >= 15) {
+      console.log('❌ No valid Dojo session after 15 seconds, redirecting to homepage');
       console.log('Final debug info:', debugInfo);
       
       navigate('/', { 
         replace: true,
         state: { 
-          error: 'Session validation timeout',
+          error: 'Dojo session validation timeout',
           debugInfo: debugInfo 
         }
       });
@@ -123,7 +125,7 @@ const Game = () => {
   // Auto-join queue when session is valid and game is idle
   useEffect(() => {
     if (hasValidSession && gameStatus === 'idle' && !error && hasAttemptedSessionValidation) {
-      console.log('🎮 Valid session and idle state - auto-joining queue...');
+      console.log('🎮 Valid Dojo session and idle state - auto-joining queue...');
       const timer = setTimeout(() => {
         joinQueue();
       }, 1000);
@@ -134,16 +136,17 @@ const Game = () => {
 
   // Debug logging for session state changes
   useEffect(() => {
-    console.log('🔍 Session state update:', {
+    console.log('🔍 Dojo session state update:', {
       hasValidSession,
       waitTime,
       gameStatus,
       debugInfo,
-      currentPhase
+      currentPhase,
+      dojoError
     });
-  }, [hasValidSession, waitTime, gameStatus, debugInfo, currentPhase]);
+  }, [hasValidSession, waitTime, gameStatus, debugInfo, currentPhase, dojoError]);
 
-  // Early return for session validation phase
+  // Early return for session validation phase - Enhanced for Dojo
   if (!hasValidSession) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-black text-white overflow-hidden relative">
@@ -169,33 +172,41 @@ const Game = () => {
         <div className="relative z-10 max-w-4xl mx-auto p-6">
           <div className="text-center mb-8">
             <h1 className="text-4xl font-bold mb-4 text-cyber-orange neon-text animate-neon-flicker">
-              Validating Session
+              Connecting to Dojo World
             </h1>
             <p className="text-lg text-gray-300 mb-6">
-              Please wait while we establish your connection...
+              Please wait while we establish your Dojo session...
             </p>
           </div>
 
-          {/* Phase Indicator */}
+          {/* Enhanced Phase Indicator for Dojo */}
           <div className="mb-8">
             <PhaseIndicator currentPhase={currentPhase} />
+            <div className="text-center mt-4">
+              <div className="text-sm text-gray-400">
+                {currentPhase === 1 && "🔍 Validating Dojo session..."}
+                {currentPhase === 2 && "🎯 Searching for opponent..."}
+                {currentPhase === 3 && "🚀 Launching game..."}
+              </div>
+            </div>
           </div>
 
-          {/* Debug information */}
+          {/* Enhanced Debug information */}
           <div className="bg-gray-800/50 rounded-lg p-4 mb-6">
-            <h3 className="text-lg font-semibold text-yellow-400 mb-2">Connection Status</h3>
+            <h3 className="text-lg font-semibold text-yellow-400 mb-2">Dojo Connection Status</h3>
             <div className="space-y-1 text-sm text-gray-300">
-              <div>⏱️ Wait time: {waitTime}s / 20s</div>
+              <div>⏱️ Wait time: {waitTime}s / 15s</div>
               <div>📊 {debugInfo}</div>
               <div>🎯 Current phase: {currentPhase}</div>
+              {dojoError && <div className="text-red-400">❌ Dojo Error: {dojoError}</div>}
             </div>
           </div>
 
           {/* Emergency fallback */}
-          {waitTime > 15 && (
+          {waitTime > 10 && (
             <div className="text-center">
               <p className="text-yellow-400 mb-4">
-                Taking longer than expected...
+                Dojo connection taking longer than expected...
               </p>
               <button
                 onClick={() => navigate('/')}
@@ -212,7 +223,7 @@ const Game = () => {
     );
   }
 
-  // Main game content (when session is valid)
+  // Main game content (when Dojo session is valid)
   return (
     <div className="min-h-screen flex flex-col relative">
       <FloatingSymbols />

@@ -1,0 +1,31 @@
+[world]
+name = "rock_paper_scissors"
+description = "A decentralized Rock Paper Scissors game with dynamic pricing and session keys"
+cover_uri = ""
+icon_uri = ""
+website = "https://rps-starknet.vercel.app"
+socials = ""
+
+[env]
+rpc_url = "https://free-rpc.nethermind.io/sepolia-juno"
+# rpc_url = "http://localhost:5050"
+account_address = ""
+private_key = ""
+world_address = ""
+
+[tool.sozo]
+# Account configuration
+account = ""
+private_key = ""
+# World configuration
+world = ""
+
+[tool.katana]
+# Katana configuration for local development
+disable_fee = true
+invoke_max_steps = 10000000
+
+[tool.torii]
+# Torii indexer configuration
+world = ""
+database_url = "postgres://localhost/dojo" 

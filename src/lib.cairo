@@ -1,5 +1,15 @@
 use starknet::ContractAddress;
 
+mod components;
+
+use components::{
+    Game, Round, Player, Queue, GlobalState,
+    ROCK, PAPER, SCISSORS, 
+    WAITING_FOR_COMMITS, WAITING_FOR_REVEALS, GAME_COMPLETE, FORFEITED,
+    ROUNDS_TO_WIN, MAX_ROUNDS, MOVE_TIMEOUT, TREASURY_FEE_PERCENT,
+    STRK_USD_ASSET_ID, STRK_TOKEN_ADDRESS
+};
+
 // STRK Token Interface (ERC20)
 #[starknet::interface]
 trait IERC20<TContractState> {
@@ -9,7 +19,7 @@ trait IERC20<TContractState> {
     fn approve(ref self: TContractState, spender: ContractAddress, amount: u256) -> bool;
 }
 
-// Manual Pragma Oracle Interface (to avoid dependency conflicts)
+// Pragma Oracle Interface
 #[derive(Drop, Serde)]
 struct PragmaPricesResponse {
     price: u128,
@@ -32,7 +42,7 @@ trait IPragmaOracle<TContractState> {
 // Rock Paper Scissors Game Interface
 #[starknet::interface]
 pub trait IRockPaperScissorsGame<TContractState> {
-    // Player actions (perfect for session keys)
+    // Player actions
     fn join_queue(ref self: TContractState);
     fn commit_move(ref self: TContractState, game_id: u256, round: u8, move_hash: felt252);
     fn reveal_move(ref self: TContractState, game_id: u256, round: u8, move: u8, salt: felt252);
@@ -41,7 +51,7 @@ pub trait IRockPaperScissorsGame<TContractState> {
     // View functions
     fn get_required_entry_fee(self: @TContractState) -> u256;
     fn get_current_strk_price(self: @TContractState) -> u128;
-    fn get_game_info(self: @TContractState, game_id: u256) -> (ContractAddress, ContractAddress, u8, u8, u8, u64, u256, ContractAddress);
+    fn get_game_info(self: @TContractState, game_id: u256) -> Game;
     fn is_player_in_game(self: @TContractState, player: ContractAddress) -> bool;
     fn get_queue_length(self: @TContractState) -> u32;
     fn get_total_games_played(self: @TContractState) -> u256;
@@ -53,75 +63,29 @@ pub trait IRockPaperScissorsGame<TContractState> {
 
 #[starknet::contract]
 pub mod RockPaperScissorsGame {
-    use starknet::ContractAddress;
+    use super::{
+        Game, Round, Player, Queue, GlobalState,
+        ROCK, PAPER, SCISSORS, 
+        WAITING_FOR_COMMITS, WAITING_FOR_REVEALS, GAME_COMPLETE, FORFEITED,
+        ROUNDS_TO_WIN, MAX_ROUNDS, MOVE_TIMEOUT, TREASURY_FEE_PERCENT,
+        STRK_USD_ASSET_ID, STRK_TOKEN_ADDRESS,
+        IERC20Dispatcher, IERC20DispatcherTrait,
+        IPragmaOracleDispatcher, IPragmaOracleDispatcherTrait,
+        PragmaPricesResponse, DataType
+    };
+    use starknet::{ContractAddress, get_caller_address, get_block_timestamp, get_contract_address};
     use starknet::storage::{Map, StorageMapReadAccess, StorageMapWriteAccess, StoragePointerReadAccess, StoragePointerWriteAccess};
-    use starknet::{get_caller_address, get_block_timestamp, get_contract_address};
     use core::hash::HashStateTrait;
     use core::poseidon::PoseidonTrait;
-    use super::{PragmaPricesResponse, DataType, IPragmaOracleDispatcher, IPragmaOracleDispatcherTrait, IERC20Dispatcher, IERC20DispatcherTrait};
-    
-    // Constants
-    const ROCK: u8 = 1;
-    const PAPER: u8 = 2;
-    const SCISSORS: u8 = 3;
-    const ROUNDS_TO_WIN: u8 = 3;
-    const MAX_ROUNDS: u8 = 5;
-    const MOVE_TIMEOUT: u64 = 60; // 1 minute in seconds
-    const TREASURY_FEE_PERCENT: u8 = 25;
-    
-    // Game states
-    const WAITING_FOR_COMMITS: u8 = 1;
-    const WAITING_FOR_REVEALS: u8 = 2;
-    const GAME_COMPLETE: u8 = 3;
-    const FORFEITED: u8 = 4;
-    
-    // Oracle constants
-    const STRK_USD_ASSET_ID: felt252 = 6004514686061859652; // Pragma's STRK/USD pair ID
-    
-    // STRK Token Contract Address (Sepolia Testnet)
-    const STRK_TOKEN_ADDRESS: felt252 = 0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d;
 
     #[storage]
     struct Storage {
-        // Core game storage
-        game_counter: u256,
-        total_games_played: u256,
-        
-        // Game info: separate maps for each field
-        games_player1: Map<u256, ContractAddress>,
-        games_player2: Map<u256, ContractAddress>,
-        games_player1_wins: Map<u256, u8>,
-        games_player2_wins: Map<u256, u8>,
-        games_current_round: Map<u256, u8>,
-        games_state: Map<u256, u8>,
-        games_last_activity: Map<u256, u64>,
-        games_prize_pool: Map<u256, u256>,
-        games_winner: Map<u256, ContractAddress>,
-        
-        // Round info: using tuples as keys
-        round_player1_hash: Map<(u256, u8), felt252>,
-        round_player2_hash: Map<(u256, u8), felt252>,
-        round_player1_move: Map<(u256, u8), u8>,
-        round_player2_move: Map<(u256, u8), u8>,
-        round_player1_revealed: Map<(u256, u8), bool>,
-        round_player2_revealed: Map<(u256, u8), bool>,
-        round_commit_deadline: Map<(u256, u8), u64>,
-        round_reveal_deadline: Map<(u256, u8), u64>,
-        
-        // Player management
-        player_current_game: Map<ContractAddress, u256>,
-        queue_player1: ContractAddress,
-        queue_player2: ContractAddress,
-        queue_length: u32,
-        
-        // Treasury and oracle
-        treasury_balance: u256,
-        pragma_oracle_address: ContractAddress, // Address of Pragma Oracle contract
-        strk_token_address: ContractAddress, // Address of STRK token contract
-        
-        // Admin controls
-        owner: ContractAddress,
-        emergency_paused: bool,
+        // ECS-like storage using maps
+        games: Map<u256, Game>,
+        rounds: Map<(u256, u8), Round>,
+        players: Map<ContractAddress, Player>,
+        queue: Queue,
+        global_state: GlobalState,
     }
 
     #[event]
@@ -197,47 +161,66 @@ pub mod RockPaperScissorsGame {
 
     #[constructor]
     fn constructor(ref self: ContractState, owner: ContractAddress, pragma_oracle_address: ContractAddress) {
-        self.owner.write(owner);
-        self.pragma_oracle_address.write(pragma_oracle_address);
-        self.strk_token_address.write(STRK_TOKEN_ADDRESS.try_into().unwrap());
-        self.game_counter.write(0);
-        self.total_games_played.write(0);
-        self.emergency_paused.write(false);
-        self.queue_length.write(0);
+        let strk_token_address: ContractAddress = STRK_TOKEN_ADDRESS.try_into().unwrap();
+        
+        let global_state = GlobalState {
+            id: 1,
+            game_counter: 0,
+            total_games_played: 0,
+            treasury_balance: 0,
+            pragma_oracle_address,
+            strk_token_address,
+            owner,
+            emergency_paused: false,
+        };
+        
+        let queue = Queue {
+            id: 1,
+            player1: starknet::contract_address_const::<0>(),
+            player2: starknet::contract_address_const::<0>(),
+            length: 0,
+        };
+        
+        self.global_state.write(global_state);
+        self.queue.write(queue);
     }
 
     #[abi(embed_v0)]
     impl RockPaperScissorsGameImpl of super::IRockPaperScissorsGame<ContractState> {
         
         fn join_queue(ref self: ContractState) {
-            assert(!self.emergency_paused.read(), 'Game is paused');
+            let global_state = self.global_state.read();
+            assert(!global_state.emergency_paused, 'Game is paused');
             
             let caller = get_caller_address();
             let entry_fee = self.get_required_entry_fee();
             
-            // Check if player is already in a game or queue
-            assert(self.player_current_game.read(caller) == 0, 'Player already in game');
+            // Check if player is already in a game
+            let player = self.players.read(caller);
+            assert(player.current_game == 0, 'Player already in game');
             
             // Transfer entry fee from player to contract
-            let strk_token = IERC20Dispatcher { contract_address: self.strk_token_address.read() };
+            let strk_token = IERC20Dispatcher { contract_address: global_state.strk_token_address };
             let success = strk_token.transfer_from(caller, get_contract_address(), entry_fee);
             assert(success, 'Entry fee transfer failed');
             
-            let queue_len = self.queue_length.read();
+            let mut queue = self.queue.read();
             
-            if queue_len == 0 {
+            if queue.length == 0 {
                 // First player in queue
-                self.queue_player1.write(caller);
-                self.queue_length.write(1);
+                queue.player1 = caller;
+                queue.length = 1;
+                self.queue.write(queue);
                 
                 self.emit(Event::PlayerJoinedQueue(
                     PlayerJoinedQueue { player: caller, position: 1 }
                 ));
-            } else if queue_len == 1 {
+            } else if queue.length == 1 {
                 // Second player - start game immediately
-                let player1 = self.queue_player1.read();
-                self.queue_player2.write(caller);
-                self.queue_length.write(0); // Reset queue
+                let player1 = queue.player1;
+                queue.player2 = caller;
+                queue.length = 0; // Reset queue
+                self.queue.write(queue);
                 
                 self.emit(Event::PlayerJoinedQueue(
                     PlayerJoinedQueue { player: caller, position: 2 }
@@ -246,111 +229,114 @@ pub mod RockPaperScissorsGame {
                 // Start the game
                 self._start_game(player1, caller);
             } else {
-                // Should not happen with our simple queue
                 assert(false, 'Queue error');
             }
         }
         
         fn commit_move(ref self: ContractState, game_id: u256, round: u8, move_hash: felt252) {
-            assert(!self.emergency_paused.read(), 'Game is paused');
+            let global_state = self.global_state.read();
+            assert(!global_state.emergency_paused, 'Game is paused');
             
             let caller = get_caller_address();
-            let player1 = self.games_player1.read(game_id);
-            let player2 = self.games_player2.read(game_id);
-            let game_state = self.games_state.read(game_id);
-            let current_round = self.games_current_round.read(game_id);
+            let game = self.games.read(game_id);
+            let mut round_data = self.rounds.read((game_id, round));
             
             // Validate game and round
-            assert(current_round == round, 'Invalid round');
-            assert(game_state == WAITING_FOR_COMMITS, 'Not in commit phase');
-            assert(caller == player1 || caller == player2, 'Not a player in this game');
-            assert(get_block_timestamp() <= self.round_commit_deadline.read((game_id, round)), 'Commit deadline passed');
+            assert(round == game.current_round, 'Invalid round');
+            assert(game.state == WAITING_FOR_COMMITS, 'Not in commit phase');
+            assert(caller == game.player1 || caller == game.player2, 'Not a player in this game');
+            assert(get_block_timestamp() <= round_data.commit_deadline, 'Commit deadline passed');
             
             // Store the move hash
-            if caller == player1 {
-                assert(self.round_player1_hash.read((game_id, round)) == 0, 'Already committed');
-                self.round_player1_hash.write((game_id, round), move_hash);
+            if caller == game.player1 {
+                assert(round_data.player1_hash == 0, 'Already committed');
+                round_data.player1_hash = move_hash;
             } else {
-                assert(self.round_player2_hash.read((game_id, round)) == 0, 'Already committed');
-                self.round_player2_hash.write((game_id, round), move_hash);
+                assert(round_data.player2_hash == 0, 'Already committed');
+                round_data.player2_hash = move_hash;
             }
+            
+            self.rounds.write((game_id, round), round_data);
             
             self.emit(Event::MoveCommitted(
                 MoveCommitted { game_id, player: caller, round }
             ));
             
             // Check if both players have committed
-            if self.round_player1_hash.read((game_id, round)) != 0 && 
-               self.round_player2_hash.read((game_id, round)) != 0 {
-                self.games_state.write(game_id, WAITING_FOR_REVEALS);
-                self.games_last_activity.write(game_id, get_block_timestamp());
+            let updated_round = self.rounds.read((game_id, round));
+            if updated_round.player1_hash != 0 && updated_round.player2_hash != 0 {
+                let mut updated_game = game;
+                updated_game.state = WAITING_FOR_REVEALS;
+                updated_game.last_activity = get_block_timestamp();
+                self.games.write(game_id, updated_game);
             }
         }
         
         fn reveal_move(ref self: ContractState, game_id: u256, round: u8, move: u8, salt: felt252) {
-            assert(!self.emergency_paused.read(), 'Game is paused');
+            let global_state = self.global_state.read();
+            assert(!global_state.emergency_paused, 'Game is paused');
             
             let caller = get_caller_address();
-            let player1 = self.games_player1.read(game_id);
-            let player2 = self.games_player2.read(game_id);
-            let game_state = self.games_state.read(game_id);
-            let current_round = self.games_current_round.read(game_id);
+            let game = self.games.read(game_id);
+            let mut round_data = self.rounds.read((game_id, round));
             
             // Validate inputs
-            assert(current_round == round, 'Invalid round');
-            assert(game_state == WAITING_FOR_REVEALS, 'Not in reveal phase');
-            assert(caller == player1 || caller == player2, 'Not a player in this game');
+            assert(round == game.current_round, 'Invalid round');
+            assert(game.state == WAITING_FOR_REVEALS, 'Not in reveal phase');
+            assert(caller == game.player1 || caller == game.player2, 'Not a player in this game');
             assert(move >= ROCK && move <= SCISSORS, 'Invalid move');
-            assert(get_block_timestamp() <= self.round_reveal_deadline.read((game_id, round)), 'Reveal deadline passed');
+            assert(get_block_timestamp() <= round_data.reveal_deadline, 'Reveal deadline passed');
             
             // Verify the commitment
             let expected_hash = self._hash_move(move, salt);
             
-            if caller == player1 {
-                assert(self.round_player1_hash.read((game_id, round)) == expected_hash, 'Invalid move or salt');
-                assert(!self.round_player1_revealed.read((game_id, round)), 'Already revealed');
-                self.round_player1_move.write((game_id, round), move);
-                self.round_player1_revealed.write((game_id, round), true);
+            if caller == game.player1 {
+                assert(round_data.player1_hash == expected_hash, 'Invalid move or salt');
+                assert(!round_data.player1_revealed, 'Already revealed');
+                round_data.player1_move = move;
+                round_data.player1_revealed = true;
             } else {
-                assert(self.round_player2_hash.read((game_id, round)) == expected_hash, 'Invalid move or salt');
-                assert(!self.round_player2_revealed.read((game_id, round)), 'Already revealed');
-                self.round_player2_move.write((game_id, round), move);
-                self.round_player2_revealed.write((game_id, round), true);
+                assert(round_data.player2_hash == expected_hash, 'Invalid move or salt');
+                assert(!round_data.player2_revealed, 'Already revealed');
+                round_data.player2_move = move;
+                round_data.player2_revealed = true;
             }
+            
+            self.rounds.write((game_id, round), round_data);
             
             self.emit(Event::MoveRevealed(
                 MoveRevealed { game_id, player: caller, round, move }
             ));
             
             // Check if both players have revealed
-            if self.round_player1_revealed.read((game_id, round)) && 
-               self.round_player2_revealed.read((game_id, round)) {
+            let updated_round = self.rounds.read((game_id, round));
+            if updated_round.player1_revealed && updated_round.player2_revealed {
                 self._resolve_round(game_id, round);
             }
         }
         
         fn claim_prize(ref self: ContractState, game_id: u256) {
             let caller = get_caller_address();
-            let winner = self.games_winner.read(game_id);
-            let game_state = self.games_state.read(game_id);
-            let prize_pool = self.games_prize_pool.read(game_id);
+            let mut game = self.games.read(game_id);
             
-            assert(caller == winner, 'Not the winner');
-            assert(game_state == GAME_COMPLETE || game_state == FORFEITED, 'Game not complete');
-            assert(prize_pool > 0, 'Prize already claimed');
+            assert(caller == game.winner, 'Not the winner');
+            assert(game.state == GAME_COMPLETE || game.state == FORFEITED, 'Game not complete');
+            assert(game.prize_pool > 0, 'Prize already claimed');
             
-            let prize_amount = prize_pool * (100 - TREASURY_FEE_PERCENT.into()) / 100;
-            let treasury_amount = prize_pool - prize_amount;
+            let prize_amount = game.prize_pool * (100 - TREASURY_FEE_PERCENT.into()) / 100;
+            let treasury_amount = game.prize_pool - prize_amount;
             
             // Update treasury
-            let current_treasury = self.treasury_balance.read();
-            self.treasury_balance.write(current_treasury + treasury_amount);
+            let mut global_state = self.global_state.read();
+            global_state.treasury_balance += treasury_amount;
+            self.global_state.write(global_state);
             
             // Mark prize as claimed
-            self.games_prize_pool.write(game_id, 0);
+            game.prize_pool = 0;
+            self.games.write(game_id, game);
             
             // Transfer STRK tokens to winner
-            let strk_token = IERC20Dispatcher { contract_address: self.strk_token_address.read() };
+            let strk_token = IERC20Dispatcher { contract_address: global_state.strk_token_address };
             let success = strk_token.transfer(caller, prize_amount);
             assert(success, 'Prize transfer failed');
             
@@ -363,11 +349,9 @@ pub mod RockPaperScissorsGame {
             let strk_price_usd = self._get_strk_price_from_oracle();
             
             // Calculate required STRK for $1
-            // Oracle price has 8 decimals, we want $1 = 100000000 (8 decimals)
             let one_dollar_in_cents: u256 = 100000000; // $1 with 8 decimals
             let strk_decimals: u256 = 1000000000000000000; // 10^18 STRK per token
             
-            // Calculate STRK needed: ($1 * 10^18) / (STRK_price_in_USD * 10^8)
             (one_dollar_in_cents * strk_decimals) / strk_price_usd.into()
         }
         
@@ -375,42 +359,36 @@ pub mod RockPaperScissorsGame {
             self._get_strk_price_from_oracle()
         }
         
-        fn get_game_info(self: @ContractState, game_id: u256) -> (ContractAddress, ContractAddress, u8, u8, u8, u64, u256, ContractAddress) {
-            (
-                self.games_player1.read(game_id),
-                self.games_player2.read(game_id),
-                self.games_player1_wins.read(game_id),
-                self.games_player2_wins.read(game_id),
-                self.games_current_round.read(game_id),
-                self.games_last_activity.read(game_id),
-                self.games_prize_pool.read(game_id),
-                self.games_winner.read(game_id)
-            )
+        fn get_game_info(self: @ContractState, game_id: u256) -> Game {
+            self.games.read(game_id)
         }
         
         fn is_player_in_game(self: @ContractState, player: ContractAddress) -> bool {
-            self.player_current_game.read(player) != 0
+            let player_data = self.players.read(player);
+            player_data.current_game != 0
         }
         
         fn get_queue_length(self: @ContractState) -> u32 {
-            self.queue_length.read()
+            let queue = self.queue.read();
+            queue.length
         }
         
         fn get_total_games_played(self: @ContractState) -> u256 {
-            self.total_games_played.read()
+            let global_state = self.global_state.read();
+            global_state.total_games_played
         }
         
         fn withdraw_treasury(ref self: ContractState, amount: u256) {
             let caller = get_caller_address();
-            assert(caller == self.owner.read(), 'Only owner can withdraw');
+            let mut global_state = self.global_state.read();
+            assert(caller == global_state.owner, 'Only owner can withdraw');
+            assert(amount <= global_state.treasury_balance, 'Insufficient treasury balance');
             
-            let current_balance = self.treasury_balance.read();
-            assert(amount <= current_balance, 'Insufficient treasury balance');
-            
-            self.treasury_balance.write(current_balance - amount);
+            global_state.treasury_balance -= amount;
+            self.global_state.write(global_state);
             
             // Transfer STRK tokens to owner
-            let strk_token = IERC20Dispatcher { contract_address: self.strk_token_address.read() };
+            let strk_token = IERC20Dispatcher { contract_address: global_state.strk_token_address };
             let success = strk_token.transfer(caller, amount);
             assert(success, 'Treasury withdrawal failed');
             
@@ -421,8 +399,10 @@ pub mod RockPaperScissorsGame {
         
         fn set_emergency_pause(ref self: ContractState, paused: bool) {
             let caller = get_caller_address();
-            assert(caller == self.owner.read(), 'Only owner can pause');
-            self.emergency_paused.write(paused);
+            let mut global_state = self.global_state.read();
+            assert(caller == global_state.owner, 'Only owner can pause');
+            global_state.emergency_paused = paused;
+            self.global_state.write(global_state);
         }
     }
 
@@ -430,35 +410,55 @@ pub mod RockPaperScissorsGame {
     #[generate_trait]
     impl InternalFunctions of InternalFunctionsTrait {
         fn _start_game(ref self: ContractState, player1: ContractAddress, player2: ContractAddress) {
-            let game_id = self.game_counter.read() + 1;
-            self.game_counter.write(game_id);
-            
-            // Increment total games played
-            let total_games = self.total_games_played.read() + 1;
-            self.total_games_played.write(total_games);
+            let mut global_state = self.global_state.read();
+            let game_id = global_state.game_counter + 1;
+            global_state.game_counter = game_id;
+            global_state.total_games_played += 1;
+            self.global_state.write(global_state);
             
             let entry_fee = self.get_required_entry_fee();
             let total_prize_pool = entry_fee * 2;
             
             // Initialize game
-            self.games_player1.write(game_id, player1);
-            self.games_player2.write(game_id, player2);
-            self.games_player1_wins.write(game_id, 0);
-            self.games_player2_wins.write(game_id, 0);
-            self.games_current_round.write(game_id, 1);
-            self.games_state.write(game_id, WAITING_FOR_COMMITS);
-            self.games_last_activity.write(game_id, get_block_timestamp());
-            self.games_prize_pool.write(game_id, total_prize_pool);
-            self.games_winner.write(game_id, starknet::contract_address_const::<0>());
+            let game = Game {
+                game_id,
+                player1,
+                player2,
+                player1_wins: 0,
+                player2_wins: 0,
+                current_round: 1,
+                state: WAITING_FOR_COMMITS,
+                last_activity: get_block_timestamp(),
+                prize_pool: total_prize_pool,
+                winner: starknet::contract_address_const::<0>(),
+            };
             
-            // Set player associations
-            self.player_current_game.write(player1, game_id);
-            self.player_current_game.write(player2, game_id);
-            
-            // Initialize first round timeouts
+            // Initialize first round
             let current_time = get_block_timestamp();
-            self.round_commit_deadline.write((game_id, 1), current_time + MOVE_TIMEOUT);
-            self.round_reveal_deadline.write((game_id, 1), current_time + (MOVE_TIMEOUT * 2));
+            let round = Round {
+                game_id,
+                round_number: 1,
+                player1_hash: 0,
+                player2_hash: 0,
+                player1_move: 0,
+                player2_move: 0,
+                player1_revealed: false,
+                player2_revealed: false,
+                commit_deadline: current_time + MOVE_TIMEOUT,
+                reveal_deadline: current_time + (MOVE_TIMEOUT * 2),
+            };
+            
+            // Update player states
+            let mut player1_state = self.players.read(player1);
+            player1_state.current_game = game_id;
+            let mut player2_state = self.players.read(player2);
+            player2_state.current_game = game_id;
+            
+            // Save everything
+            self.games.write(game_id, game);
+            self.rounds.write((game_id, 1), round);
+            self.players.write(player1, player1_state);
+            self.players.write(player2, player2_state);
             
             self.emit(Event::GameStarted(
                 GameStarted { game_id, player1, player2, entry_fee }
@@ -466,68 +466,87 @@ pub mod RockPaperScissorsGame {
         }
         
         fn _resolve_round(ref self: ContractState, game_id: u256, round: u8) {
-            let player1 = self.games_player1.read(game_id);
-            let player2 = self.games_player2.read(game_id);
-            let move1 = self.round_player1_move.read((game_id, round));
-            let move2 = self.round_player2_move.read((game_id, round));
+            let mut game = self.games.read(game_id);
+            let round_data = self.rounds.read((game_id, round));
             
-            let winner = self._determine_round_winner(move1, move2, player1, player2);
+            let winner = self._determine_round_winner(
+                round_data.player1_move, 
+                round_data.player2_move, 
+                game.player1, 
+                game.player2
+            );
             
             // Update wins
-            let mut player1_wins = self.games_player1_wins.read(game_id);
-            let mut player2_wins = self.games_player2_wins.read(game_id);
-            
-            if winner == player1 {
-                player1_wins += 1;
-                self.games_player1_wins.write(game_id, player1_wins);
-            } else if winner == player2 {
-                player2_wins += 1;
-                self.games_player2_wins.write(game_id, player2_wins);
+            if winner == game.player1 {
+                game.player1_wins += 1;
+            } else if winner == game.player2 {
+                game.player2_wins += 1;
             }
             
             self.emit(Event::RoundWon(
-                RoundWon { game_id, round, winner, player1_move: move1, player2_move: move2 }
+                RoundWon { 
+                    game_id, 
+                    round, 
+                    winner, 
+                    player1_move: round_data.player1_move, 
+                    player2_move: round_data.player2_move 
+                }
             ));
             
             // Check if game is complete
-            if player1_wins == ROUNDS_TO_WIN {
-                self._complete_game(game_id, player1);
-            } else if player2_wins == ROUNDS_TO_WIN {
-                self._complete_game(game_id, player2);
+            if game.player1_wins == ROUNDS_TO_WIN {
+                self._complete_game(game_id, game.player1);
+            } else if game.player2_wins == ROUNDS_TO_WIN {
+                self._complete_game(game_id, game.player2);
             } else if round < MAX_ROUNDS {
                 // Start next round
                 let next_round = round + 1;
-                self.games_current_round.write(game_id, next_round);
-                self.games_state.write(game_id, WAITING_FOR_COMMITS);
-                self.games_last_activity.write(game_id, get_block_timestamp());
+                game.current_round = next_round;
+                game.state = WAITING_FOR_COMMITS;
+                game.last_activity = get_block_timestamp();
+                self.games.write(game_id, game);
                 
                 let current_time = get_block_timestamp();
-                self.round_commit_deadline.write((game_id, next_round), current_time + MOVE_TIMEOUT);
-                self.round_reveal_deadline.write((game_id, next_round), current_time + (MOVE_TIMEOUT * 2));
+                let next_round_data = Round {
+                    game_id,
+                    round_number: next_round,
+                    player1_hash: 0,
+                    player2_hash: 0,
+                    player1_move: 0,
+                    player2_move: 0,
+                    player1_revealed: false,
+                    player2_revealed: false,
+                    commit_deadline: current_time + MOVE_TIMEOUT,
+                    reveal_deadline: current_time + (MOVE_TIMEOUT * 2),
+                };
+                self.rounds.write((game_id, next_round), next_round_data);
             } else {
                 // Max rounds reached, determine winner by most wins
-                if player1_wins > player2_wins {
-                    self._complete_game(game_id, player1);
+                if game.player1_wins > game.player2_wins {
+                    self._complete_game(game_id, game.player1);
                 } else {
-                    self._complete_game(game_id, player2);
+                    self._complete_game(game_id, game.player2);
                 }
             }
         }
         
         fn _complete_game(ref self: ContractState, game_id: u256, winner: ContractAddress) {
-            let player1 = self.games_player1.read(game_id);
-            let player2 = self.games_player2.read(game_id);
-            let prize_pool = self.games_prize_pool.read(game_id);
+            let mut game = self.games.read(game_id);
             
-            self.games_winner.write(game_id, winner);
-            self.games_state.write(game_id, GAME_COMPLETE);
+            game.winner = winner;
+            game.state = GAME_COMPLETE;
+            self.games.write(game_id, game);
             
             // Clear player game associations
-            self.player_current_game.write(player1, 0);
-            self.player_current_game.write(player2, 0);
+            let mut player1 = self.players.read(game.player1);
+            let mut player2 = self.players.read(game.player2);
+            player1.current_game = 0;
+            player2.current_game = 0;
+            self.players.write(game.player1, player1);
+            self.players.write(game.player2, player2);
             
             self.emit(Event::GameWon(
-                GameWon { game_id, winner, prize_amount: prize_pool }
+                GameWon { game_id, winner, prize_amount: game.prize_pool }
             ));
         }
         
@@ -558,11 +577,11 @@ pub mod RockPaperScissorsGame {
         }
         
         fn _get_strk_price_from_oracle(self: @ContractState) -> u128 {
+            let global_state = self.global_state.read();
             let oracle_dispatcher = IPragmaOracleDispatcher {
-                contract_address: self.pragma_oracle_address.read()
+                contract_address: global_state.pragma_oracle_address
             };
             
-            // Call the Pragma Oracle contract for STRK/USD spot price
             let price_response: PragmaPricesResponse = oracle_dispatcher
                 .get_data_median(DataType::SpotEntry(STRK_USD_ASSET_ID));
             

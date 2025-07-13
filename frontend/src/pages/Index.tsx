@@ -2,8 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Zap, Shield, Trophy, Play, RefreshCw, Loader2 } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from 'react-router-dom';
-import { useAccount, useConnect, useDisconnect } from '@starknet-react/core';
-import { ControllerConnector } from '@cartridge/connector';
+import { useDojo } from '../providers/DojoProvider';
 import { useRockPaperScissorsContract } from '../hooks/useRockPaperScissorsContract';
 import GameCard from '../components/GameCard';
 import StatCard from '../components/StatCard';
@@ -15,37 +14,30 @@ const Index = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
   
-  const { account, address, status, isConnected } = useAccount();
-  const { connect, connectors } = useConnect();
-  const { disconnect } = useDisconnect();
-  
-  const controllerConnector = useMemo(
-    () => ControllerConnector.fromConnectors(connectors),
-    [connectors],
-  );
+  // Use the new Dojo context for enhanced wallet connection
+  const { account, address, isConnected, connect, disconnect, isConnecting, error: dojoError, sessionValid } = useDojo();
   
   const { queueLength } = useRockPaperScissorsContract();
   const [strkPrice, setStrkPrice] = useState<number | null>(null);
   const [isLoadingPrice, setIsLoadingPrice] = useState(true);
   const [entryFeeStrk, setEntryFeeStrk] = useState<string>("0");
-  const [isConnecting, setIsConnecting] = useState(false);
   const [connectionAttempts, setConnectionAttempts] = useState(0);
 
-  // Enhanced session validation
+  // Enhanced session validation with Dojo integration
   const hasValidSession = useMemo(() => {
-    const sessionValid = !!(account && address && isConnected);
+    const isSessionValid = !!(account && address && isConnected && sessionValid);
     
-    if (sessionValid) {
-      console.log('✅ Valid session detected:', {
+    if (isSessionValid) {
+      console.log('✅ Valid Dojo session detected:', {
         account: !!account,
         address: !!address,
         isConnected,
-        status
+        sessionValid
       });
     }
     
-    return sessionValid;
-  }, [account, address, isConnected, status]);
+    return isSessionValid;
+  }, [account, address, isConnected, sessionValid]);
 
   // Load STRK price on mount
   useEffect(() => {
@@ -71,48 +63,34 @@ const Index = () => {
     fetchStrkPrice();
   }, []);
 
-  // Enhanced connection handler with proper async flow
+  // Enhanced connection handler with Dojo integration
   const handlePlayClick = useCallback(async () => {
     // If already have valid session, go directly to game
     if (hasValidSession) {
-      console.log('🎮 Already have valid session, navigating to game');
+      console.log('🎮 Already have valid Dojo session, navigating to game');
       navigate('/game');
       return;
     }
 
-    if (!controllerConnector) {
-      toast({
-        title: "Controller Not Available",
-        description: "Cartridge Controller not found. Please refresh the page.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsConnecting(true);
     setConnectionAttempts(prev => prev + 1);
     
     try {
-      console.log('🔌 Attempting to connect to Cartridge Controller...');
+      console.log('🔌 Attempting Dojo connection...');
+      await connect();
       
-      // Call connect and wait for it to complete
-      await connect({ connector: controllerConnector });
+      console.log('✅ Dojo connect call completed, navigating to game');
       
-      console.log('✅ Connect call completed, waiting for state sync...');
-      
-      // Navigate immediately after successful connect call
-      // The Game component will handle session validation
+      // Navigate immediately - Game component will handle session validation
       navigate('/game');
       
     } catch (error) {
-      console.error('❌ Connection failed:', error);
+      console.error('❌ Dojo connection failed:', error);
       
-      // More specific error handling
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       
       toast({
         title: "Connection Failed",
-        description: `Failed to connect to Cartridge Controller: ${errorMessage}. Please try again.`,
+        description: `Failed to connect via Dojo: ${errorMessage}. Please try again.`,
         variant: "destructive",
       });
       
@@ -120,18 +98,15 @@ const Index = () => {
       if (errorMessage.includes('rejected') || errorMessage.includes('denied')) {
         setConnectionAttempts(0);
       }
-      
-    } finally {
-      setIsConnecting(false);
     }
-  }, [hasValidSession, controllerConnector, connect, navigate, toast]);
+  }, [hasValidSession, connect, navigate, toast]);
 
   const handleDisconnect = async () => {
     try {
       await disconnect();
       toast({
         title: "Disconnected",
-        description: "Successfully disconnected from Cartridge Controller.",
+        description: "Successfully disconnected from the game.",
       });
     } catch (error) {
       console.error('Disconnect failed:', error);
@@ -143,152 +118,139 @@ const Index = () => {
     }
   };
 
-  // Debug connection state
+  // Debug connection state with Dojo integration
   useEffect(() => {
-    console.log('🔍 Connection state:', {
+    console.log('🔍 Dojo connection state:', {
       hasValidSession,
       account: !!account,
       address: !!address,
       isConnected,
-      status,
+      sessionValid,
       isConnecting,
-      connectionAttempts
+      connectionAttempts,
+      dojoError
     });
-  }, [hasValidSession, account, address, isConnected, status, isConnecting, connectionAttempts]);
+  }, [hasValidSession, account, address, isConnected, sessionValid, isConnecting, connectionAttempts, dojoError]);
 
   return (
-    <div className="min-h-screen flex flex-col relative">
-      {/* Floating background symbols */}
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-black text-white overflow-hidden relative">
       <FloatingSymbols />
       
-      {/* Header */}
-      <header className="text-center py-12 px-4 relative z-10 mb-8">
-        <div className="flex justify-center">
-          <h1 className="text-8xl font-bold text-cyber-orange neon-text animate-neon-flicker mb-4">
-            ROCK PAPER SCISSORS
-          </h1>
-        </div>
-        <div className="flex justify-center">
-          <div className="w-80 h-1 bg-gradient-to-r from-transparent via-cyber-orange to-transparent" />
-        </div>
-      </header>
-
-      {/* Session Status */}
-      {hasValidSession && (
-        <div className="text-center mb-8 px-4">
-          <div className="inline-flex items-center gap-2 px-4 py-2 bg-green-500/20 border border-green-500/40 rounded-lg text-green-400">
-            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-            <span className="text-sm font-medium">
-              Session Active: {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Connected'}
-            </span>
-            <button
-              onClick={handleDisconnect}
-              className="ml-2 text-xs text-red-400 hover:text-red-300 underline"
-            >
-              Disconnect
-            </button>
+      {/* Hero Section */}
+      <div className="relative z-10 text-center pt-20 pb-16 px-4">
+        <h1 className="text-6xl md:text-8xl font-bold mb-6 text-cyber-orange neon-text animate-neon-flicker">
+          Rock Paper Scissors
+        </h1>
+        <p className="text-xl md:text-2xl text-gray-300 mb-8 max-w-3xl mx-auto">
+          The ultimate decentralized Rock Paper Scissors experience on Starknet
+        </p>
+        
+        {/* Session Status */}
+        {hasValidSession && (
+          <div className="text-center mb-8 px-4">
+            <div className="inline-flex items-center gap-2 px-4 py-2 bg-green-500/20 border border-green-500/40 rounded-lg text-green-400">
+              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+              <span>Connected to Dojo World</span>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Debug Info */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="text-center mb-4 px-4">
-          <div className="inline-flex flex-col items-center gap-1 px-4 py-2 bg-gray-800/50 border border-gray-600/40 rounded text-xs text-gray-400">
-            <div>Status: {status} | Connected: {isConnected.toString()}</div>
-            <div>Account: {account ? '✅' : '❌'} | Address: {address ? '✅' : '❌'}</div>
-            <div>Has Session: {hasValidSession.toString()} | Connecting: {isConnecting.toString()}</div>
+        {/* Debug info (only in development) */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="max-w-2xl mx-auto mb-8">
+            <div className="bg-gray-800/50 rounded-lg p-4 text-sm">
+              <div>Session Valid: {hasValidSession.toString()} | Connecting: {isConnecting.toString()}</div>
+              <div>Account: {account ? '✅' : '❌'} | Address: {address ? '✅' : '❌'}</div>
+              <div>Connected: {isConnected.toString()} | Dojo Session: {sessionValid.toString()}</div>
+              {dojoError && <div className="text-red-400">Error: {dojoError}</div>}
+            </div>
           </div>
-        </div>
-      )}
-
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col items-center px-4">
-        {/* Three Cards Row */}
-        <div className="flex justify-center w-full mb-20">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl">
-            <GameCard
-              icon={<Zap className="w-8 h-8 text-cyber-orange" />}
-              title="Entry Fee"
-              subtitle=""
-              value="$1"
-              description={isLoadingPrice ? "Loading..." : `${entryFeeStrk} STRK`}
-              isLoading={isLoadingPrice}
-              gradient="from-cyber-orange/20 to-cyber-red/20"
-            />
-            
-            <GameCard
-              icon={<Shield className="w-8 h-8 text-cyber-gold" />}
-              title="Game Rules"
-              subtitle=""
-              value="First to 3 Wins"
-              description="No Round Limit"
-              gradient="from-cyber-gold/20 to-cyber-amber/20"
-            />
-            
-            <GameCard
-              icon={<Trophy className="w-8 h-8 text-cyber-copper" />}
-              title="Prize Distribution"
-              subtitle=""
-              value="75% Winner"
-              description="25% Treasury"
-              gradient="from-cyber-copper/20 to-cyber-warm/20"
-            />
-          </div>
-        </div>
-
-        {/* Play Now Button */}
-        <div className="flex justify-center mb-12">
-          <div className="px-16">
-            <div className="flex gap-4 justify-center">
+        )}
+        
+        {/* Main Play Button */}
+        <div className="flex flex-col items-center gap-6">
+          <div className="relative group">
+            {hasValidSession ? (
               <Button 
                 onClick={handlePlayClick}
-                size="lg"
-                className="bg-gradient-to-r from-cyber-orange to-cyber-red hover:from-cyber-orange/80 hover:to-cyber-red/80 text-white font-bold px-16 py-6 text-xl shadow-lg transition-all duration-300 transform hover:scale-105"
-                disabled={isConnecting || !controllerConnector}
+                className="bg-gradient-to-r from-cyber-orange to-orange-600 hover:from-orange-600 hover:to-cyber-orange text-black font-bold text-xl px-16 py-6 rounded-lg transform hover:scale-105 transition-all duration-300 shadow-lg hover:shadow-cyber-orange/50"
+              >
+                <Play className="mr-3 h-6 w-6" />
+                Enter Game World
+              </Button>
+            ) : (
+              <Button 
+                onClick={handlePlayClick}
+                disabled={isConnecting}
+                className="bg-gradient-to-r from-cyber-orange to-orange-600 hover:from-orange-600 hover:to-cyber-orange text-black font-bold text-xl px-16 py-6 rounded-lg transform hover:scale-105 transition-all duration-300 shadow-lg hover:shadow-cyber-orange/50 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isConnecting ? (
                   <>
                     <Loader2 className="mr-3 h-6 w-6 animate-spin" />
-                    Connecting...
-                  </>
-                ) : hasValidSession ? (
-                  <>
-                    <Play className="mr-3 h-6 w-6" />
-                    Enter Game
+                    Connecting to Dojo...
                   </>
                 ) : (
                   <>
                     <Play className="mr-3 h-6 w-6" />
-                    Play Now
+                    Connect & Play
                   </>
                 )}
               </Button>
-              
-              {/* Show refresh button if controller is not ready */}
-              {controllerConnector && !controllerConnector.ready && (
-                <Button
-                  onClick={() => window.location.reload()}
-                  size="lg"
-                  variant="outline"
-                  className="px-6 py-4 text-lg"
-                >
-                  <RefreshCw className="mr-2 h-5 w-5" />
-                  Refresh
-                </Button>
-              )}
-            </div>
+            )}
           </div>
+          
+          {hasValidSession && (
+            <Button 
+              onClick={handleDisconnect}
+              variant="outline"
+              className="border-purple-500 text-purple-300 hover:bg-purple-500/20"
+            >
+              Disconnect
+            </Button>
+          )}
         </div>
+      </div>
 
-        {/* Statistics Row */}
-        <div className="flex justify-center w-full mb-20">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-md">
-            <StatCard title="Games Played" value={queueLength.toString()} />
-            <StatCard title="Total Prize Won" value="$3,891" />
-          </div>
+      {/* Three Cards Row */}
+      <div className="flex justify-center w-full mb-20">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl">
+          <GameCard
+            icon={<Zap className="w-8 h-8 text-cyber-orange" />}
+            title="Entry Fee"
+            subtitle=""
+            value="$1"
+            description={isLoadingPrice ? "Loading..." : `${entryFeeStrk} STRK`}
+            isLoading={isLoadingPrice}
+            gradient="from-cyber-orange/20 to-cyber-red/20"
+          />
+          
+          <GameCard
+            icon={<Shield className="w-8 h-8 text-cyber-gold" />}
+            title="Game Rules"
+            subtitle=""
+            value="First to 3 Wins"
+            description="No Round Limit"
+            gradient="from-cyber-gold/20 to-cyber-amber/20"
+          />
+          
+          <GameCard
+            icon={<Trophy className="w-8 h-8 text-cyber-copper" />}
+            title="Prize Distribution"
+            subtitle=""
+            value="75% Winner"
+            description="25% Treasury"
+            gradient="from-cyber-copper/20 to-cyber-warm/20"
+          />
         </div>
-      </main>
+      </div>
+
+      {/* Statistics Row */}
+      <div className="flex justify-center w-full mb-20">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-md">
+          <StatCard title="Games Played" value={queueLength.toString()} />
+          <StatCard title="Total Prize Won" value="$3,891" />
+        </div>
+      </div>
 
       {/* Footer */}
       <Footer />

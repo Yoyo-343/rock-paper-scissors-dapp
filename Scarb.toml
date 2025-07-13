@@ -5,12 +5,21 @@ edition = "2024_07"
 
 [dependencies]
 starknet = "2.9.2"
+# TODO: Add Dojo dependency when version conflicts are resolved
+# dojo = { git = "https://github.com/dojoengine/dojo", branch = "main" }
 
 [dev-dependencies]
 snforge_std = "0.31.0"
 
 [[target.starknet-contract]]
 sierra = true
+
+# TODO: Enable Dojo target when ready
+# [[target.dojo]]
+
+# TODO: Add Dojo configuration when ready
+# [tool.dojo]
+# initializer_class_hash = "0xbeef"
 
 [scripts]
 test = "snforge test" 
