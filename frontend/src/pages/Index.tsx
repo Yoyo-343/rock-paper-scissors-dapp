@@ -25,37 +25,10 @@ const Index = () => {
   );
   
   const { queueLength } = useRockPaperScissorsContract();
-  const [strkPrice, setStrkPrice] = useState<number | null>(null);
-  const [isLoadingPrice, setIsLoadingPrice] = useState(true);
-  const [entryFeeStrk, setEntryFeeStrk] = useState<string>("0");
   const [isConnecting, setIsConnecting] = useState(false);
 
   // Simple session check - just account existence  
   const hasSession = !!account;
-
-  // Load STRK price on mount
-  useEffect(() => {
-    const fetchStrkPrice = async () => {
-      try {
-        setIsLoadingPrice(true);
-        const response = await fetch('https://api.coinbase.com/v2/exchange-rates?currency=STRK');
-        const data = await response.json();
-        const strkPriceUsd = parseFloat(data.data.rates.USD);
-        setStrkPrice(strkPriceUsd);
-        
-        const entryFeeInStrk = (1 / strkPriceUsd).toFixed(4);
-        setEntryFeeStrk(entryFeeInStrk);
-      } catch (error) {
-        console.error('Failed to fetch STRK price:', error);
-        setStrkPrice(null);
-        setEntryFeeStrk("0");
-      } finally {
-        setIsLoadingPrice(false);
-      }
-    };
-
-    fetchStrkPrice();
-  }, []);
 
   // Simple connection handler
   const handlePlayClick = useCallback(async () => {
@@ -156,40 +129,12 @@ const Index = () => {
         </div>
       )}
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col items-center px-4">
-        {/* Three Cards Row */}
+      <main className="flex-1 px-4">
+        {/* Statistics Row */}
         <div className="flex justify-center w-full mb-20">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl">
-            <GameCard
-              icon={<Zap className="w-8 h-8 text-cyber-orange" />}
-              title="Entry Fee"
-              subtitle=""
-              value="$1"
-              description={isLoadingPrice ? "Loading..." : `${entryFeeStrk} STRK`}
-              isLoading={isLoadingPrice}
-              gradient="from-cyber-orange/20 to-cyber-red/20"
-            />
-            
-            <GameCard
-              icon={<Shield className="w-8 h-8 text-cyber-gold" />}
-              title="Queue Length"
-              subtitle=""
-              value={queueLength.toString()}
-              description="Players waiting"
-              isLoading={false}
-              gradient="from-cyber-gold/20 to-cyber-orange/20"
-            />
-            
-            <GameCard
-              icon={<Trophy className="w-8 h-8 text-cyber-green" />}
-              title="Prize Pool"
-              subtitle=""
-              value="$2"
-              description="Winner takes all"
-              isLoading={false}
-              gradient="from-cyber-green/20 to-cyber-blue/20"
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-md">
+            <StatCard title="Queue Length" value={queueLength.toString()} />
+            <StatCard title="Prize Pool" value="$2" />
           </div>
         </div>
 
@@ -237,10 +182,10 @@ const Index = () => {
           </div>
         </div>
 
-        {/* Statistics Row */}
+        {/* Additional Statistics */}
         <div className="flex justify-center w-full mb-20">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-md">
-            <StatCard title="Games Played" value={queueLength.toString()} />
+            <StatCard title="Games Played" value="142" />
             <StatCard title="Total Prize Won" value="$3,891" />
           </div>
         </div>
