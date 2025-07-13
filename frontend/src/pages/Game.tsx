@@ -269,12 +269,12 @@ const Game = () => {
               <div className="inline-flex flex-col items-center gap-1 px-4 py-2 bg-gray-800/50 border border-gray-600/40 rounded text-xs text-gray-400">
                 <div>Game Status: {gameStatus} | Phase: {currentPhase} | Wait: {waitTime}s</div>
                 <div>Account: {account ? '✅' : '❌'} | Address: {address ? '✅' : '❌'}</div>
-                <div>Connected: {isConnected.toString()} | Status: {status}</div>
+                <div>Connected: {isConnected.toString()} | Session: {sessionValid.toString()}</div>
                 <div>Session Tried: {hasAttemptedSessionValidation.toString()}</div>
               </div>
             </div>
           )}
-
+          
           {/* Back Button */}
           <div className="mb-6">
             <button 
