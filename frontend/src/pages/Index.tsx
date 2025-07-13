@@ -29,34 +29,9 @@ const Index = () => {
   const [isLoadingPrice, setIsLoadingPrice] = useState(true);
   const [entryFeeStrk, setEntryFeeStrk] = useState<string>("0");
   const [isConnecting, setIsConnecting] = useState(false);
-  const [connectionAttempts, setConnectionAttempts] = useState(0);
-  const [lastConnectionAttempt, setLastConnectionAttempt] = useState<number>(0);
 
-  // Enhanced session validation - check multiple conditions
-  const hasValidSession = useMemo(() => {
-    return !!(account && address && isConnected && status === 'connected');
-  }, [account, address, isConnected, status]);
-
-  // Connection state tracking
-  const [isSessionValidated, setIsSessionValidated] = useState(false);
-  
-  // Validate session by attempting to get account info
-  const validateSession = useCallback(async () => {
-    if (!hasValidSession || !controllerConnector) return false;
-    
-    try {
-      // Check if we have a valid account connection
-      if (account && address && isConnected) {
-        setIsSessionValidated(true);
-        return true;
-      }
-    } catch (error) {
-      console.warn('Session validation failed:', error);
-      setIsSessionValidated(false);
-    }
-    
-    return false;
-  }, [hasValidSession, controllerConnector, account, address, isConnected]);
+  // Simple session check - just account existence  
+  const hasSession = !!account;
 
   // Load STRK price on mount
   useEffect(() => {
@@ -82,42 +57,11 @@ const Index = () => {
     fetchStrkPrice();
   }, []);
 
-  // Enhanced session validation when account state changes
-  useEffect(() => {
-    if (hasValidSession && !isSessionValidated) {
-      console.log('🔍 Account state changed, validating session...');
-      validateSession();
-    } else if (!hasValidSession) {
-      setIsSessionValidated(false);
-    }
-  }, [hasValidSession, isSessionValidated, validateSession]);
-
-  // Auto-navigate when session is validated and we're connecting
-  useEffect(() => {
-    if (isSessionValidated && isConnecting) {
-      console.log('✅ Session validated, navigating to game...');
-      setIsConnecting(false);
-      navigate('/game');
-    }
-  }, [isSessionValidated, isConnecting, navigate]);
-
-  // Enhanced connection handler with retry logic
+  // Simple connection handler
   const handlePlayClick = useCallback(async () => {
-    // If already has valid session, navigate immediately
-    if (hasValidSession && isSessionValidated) {
-      console.log('🎯 Valid session exists, navigating immediately');
+    if (hasSession) {
       navigate('/game');
       return;
-    }
-
-    // If session exists but not validated, validate it
-    if (hasValidSession && !isSessionValidated) {
-      console.log('🔄 Session exists but not validated, validating...');
-      const isValid = await validateSession();
-      if (isValid) {
-        navigate('/game');
-        return;
-      }
     }
 
     if (!controllerConnector) {
@@ -129,57 +73,29 @@ const Index = () => {
       return;
     }
 
-    // Prevent too frequent connection attempts
-    const now = Date.now();
-    if (now - lastConnectionAttempt < 1000) {
-      console.log('⏰ Too soon for another connection attempt');
-      return;
-    }
-    
-    setLastConnectionAttempt(now);
     setIsConnecting(true);
-    setConnectionAttempts(prev => prev + 1);
-
-    console.log(`🎮 Starting connection attempt #${connectionAttempts + 1}...`);
-
+    
     try {
-      // Clear previous session state
-      setIsSessionValidated(false);
-      
-      // Attempt connection
-      const result = await connect({ connector: controllerConnector });
-      console.log('✅ Connect call completed:', result);
-      
-      // Don't navigate immediately, wait for session validation
-      // The useEffect above will handle navigation once session is validated
-      
+      await connect({ connector: controllerConnector });
+      // Small delay to ensure connection is established
+      setTimeout(() => {
+        navigate('/game');
+      }, 500);
     } catch (error) {
-      console.error('❌ Connection failed:', error);
-      setIsConnecting(false);
-      
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Connection failed:', error);
       toast({
         title: "Connection Failed",
-        description: `Failed to connect: ${errorMessage}. Attempt ${connectionAttempts + 1}`,
+        description: "Failed to connect to Cartridge Controller. Please try again.",
         variant: "destructive",
       });
+    } finally {
+      setIsConnecting(false);
     }
-
-    // Fallback timeout - if connection doesn't resolve in 10 seconds, stop loading
-    setTimeout(() => {
-      if (isConnecting) {
-        console.log('⏰ Connection timeout, stopping loading state');
-        setIsConnecting(false);
-      }
-    }, 10000);
-
-  }, [hasValidSession, isSessionValidated, controllerConnector, connect, navigate, toast, connectionAttempts, lastConnectionAttempt, validateSession]);
+  }, [hasSession, controllerConnector, connect, navigate, toast]);
 
   const handleDisconnect = async () => {
     try {
       await disconnect();
-      setIsSessionValidated(false);
-      setConnectionAttempts(0);
       toast({
         title: "Disconnected",
         description: "Successfully disconnected from wallet",
@@ -194,13 +110,6 @@ const Index = () => {
     }
   };
 
-  // Manual navigation for stuck connections
-  const handleManualNavigation = () => {
-    console.log('🎯 Manual navigation clicked');
-    setIsConnecting(false);
-    navigate('/game');
-  };
-
   return (
     <div className="min-h-screen flex flex-col relative">
       {/* Floating background symbols */}
@@ -209,7 +118,7 @@ const Index = () => {
       {/* Header */}
       <header className="text-center py-12 px-4 relative z-10 mb-8">
         <div className="flex justify-center">
-          <h1 className="text-8xl font-bold text-white mb-4">
+          <h1 className="text-8xl font-bold neon-text mb-4">
             ROCK PAPER SCISSORS
           </h1>
         </div>
@@ -219,7 +128,7 @@ const Index = () => {
       </header>
 
       {/* Session Status */}
-      {hasValidSession && isSessionValidated && (
+      {hasSession && (
         <div className="text-center mb-8 px-4">
           <div className="inline-flex items-center gap-2 px-4 py-2 bg-green-500/20 border border-green-500/40 rounded-lg text-green-400">
             <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
@@ -236,38 +145,13 @@ const Index = () => {
         </div>
       )}
 
-      {/* Connection Status */}
-      {isConnecting && (
-        <div className="text-center mb-8 px-4">
-          <div className="inline-flex flex-col items-center gap-4 px-6 py-4 bg-blue-500/20 border border-blue-500/40 rounded-lg text-blue-400 max-w-md mx-auto">
-            <div className="flex items-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span className="text-sm font-medium">
-                Connecting to Cartridge Controller...
-              </span>
-            </div>
-            <div className="text-xs text-gray-300 text-center">
-              <p>Attempt #{connectionAttempts}</p>
-              <p>If this takes too long:</p>
-              <Button
-                onClick={handleManualNavigation}
-                className="mt-2 bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-1 text-xs"
-              >
-                Continue Manually →
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Debug Info */}
       {process.env.NODE_ENV === 'development' && (
         <div className="text-center mb-4 px-4">
           <div className="inline-flex flex-col items-center gap-1 px-4 py-2 bg-gray-800/50 border border-gray-600/40 rounded text-xs text-gray-400">
             <div>Status: {status} | Connected: {isConnected.toString()}</div>
             <div>Account: {account ? '✅' : '❌'} | Address: {address ? '✅' : '❌'}</div>
-            <div>Valid Session: {hasValidSession.toString()} | Validated: {isSessionValidated.toString()}</div>
-            <div>Connecting: {isConnecting.toString()} | Attempts: {connectionAttempts}</div>
+            <div>Has Session: {hasSession.toString()} | Connecting: {isConnecting.toString()}</div>
           </div>
         </div>
       )}
@@ -289,20 +173,22 @@ const Index = () => {
             
             <GameCard
               icon={<Shield className="w-8 h-8 text-cyber-gold" />}
-              title="Game Rules"
+              title="Queue Length"
               subtitle=""
-              value="First to 3 Wins"
-              description="No Round Limit"
-              gradient="from-cyber-gold/20 to-cyber-amber/20"
+              value={queueLength.toString()}
+              description="Players waiting"
+              isLoading={false}
+              gradient="from-cyber-gold/20 to-cyber-orange/20"
             />
             
             <GameCard
-              icon={<Trophy className="w-8 h-8 text-cyber-copper" />}
-              title="Prize Distribution"
+              icon={<Trophy className="w-8 h-8 text-cyber-green" />}
+              title="Prize Pool"
               subtitle=""
-              value="75% Winner"
-              description="25% Treasury"
-              gradient="from-cyber-copper/20 to-cyber-warm/20"
+              value="$2"
+              description="Winner takes all"
+              isLoading={false}
+              gradient="from-cyber-green/20 to-cyber-blue/20"
             />
           </div>
         </div>
@@ -322,7 +208,7 @@ const Index = () => {
                     <Loader2 className="mr-3 h-6 w-6 animate-spin" />
                     Connecting...
                   </>
-                ) : (hasValidSession && isSessionValidated) ? (
+                ) : hasSession ? (
                   <>
                     <Play className="mr-3 h-6 w-6" />
                     Enter Game

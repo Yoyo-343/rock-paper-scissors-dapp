@@ -41,9 +41,20 @@ const Game = () => {
 
   // Track how long we've been waiting for session
   const [waitTime, setWaitTime] = useState(0);
+  const [hasTriedSessionDetection, setHasTriedSessionDetection] = useState(false);
 
-  // Simplified session check - just account existence
-  const hasSession = !!account;
+  // Enhanced session check with better timing
+  const hasSession = useMemo(() => {
+    // More robust session validation
+    const sessionExists = !!(account && address);
+    
+    // If we have a session, mark that we've tried detection
+    if (sessionExists && !hasTriedSessionDetection) {
+      setHasTriedSessionDetection(true);
+    }
+    
+    return sessionExists;
+  }, [account, address, hasTriedSessionDetection]);
 
   // Determine current phase based on session and game state
   const getCurrentPhase = (): 1 | 2 | 3 => {
@@ -70,7 +81,7 @@ const Game = () => {
     navigate('/');
   };
 
-  // Track wait time and only redirect after 10 seconds of no session
+  // Track wait time and only redirect after longer wait for better UX
   useEffect(() => {
     const interval = setInterval(() => {
       setWaitTime(prev => prev + 1);
@@ -79,17 +90,17 @@ const Game = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Much more patient session validation - wait 10 seconds before giving up
+  // More patient session validation - wait 15 seconds before giving up
   useEffect(() => {
-    if (!hasSession && waitTime >= 10) {
-      console.log('❌ No session after 10 seconds, redirecting to homepage');
+    if (!hasSession && waitTime >= 15) {
+      console.log('❌ No session after 15 seconds, redirecting to homepage');
       navigate('/', { replace: true });
     }
   }, [hasSession, waitTime, navigate]);
 
   // Auto-join queue when session exists and game is idle
   useEffect(() => {
-    if (hasSession && gameStatus === 'idle' && !error) {
+    if (hasSession && gameStatus === 'idle' && !error && hasTriedSessionDetection) {
       console.log('🎮 Session exists and idle state - auto-joining queue...');
       const timer = setTimeout(() => {
         joinQueue();
@@ -97,7 +108,25 @@ const Game = () => {
       
       return () => clearTimeout(timer);
     }
-  }, [hasSession, gameStatus, joinQueue, error]);
+  }, [hasSession, gameStatus, joinQueue, error, hasTriedSessionDetection]);
+
+  // Enhanced session state monitoring
+  useEffect(() => {
+    // Check session state every second for the first 10 seconds
+    if (!hasSession && waitTime < 10) {
+      const checkInterval = setInterval(() => {
+        console.log('🔍 Checking session state...', {
+          account: !!account,
+          address: !!address,
+          isConnected,
+          status,
+          waitTime
+        });
+      }, 1000);
+
+      return () => clearInterval(checkInterval);
+    }
+  }, [hasSession, waitTime, account, address, isConnected, status]);
 
   // Debug logging for session state changes
   useEffect(() => {
@@ -109,9 +138,10 @@ const Game = () => {
       hasSession,
       waitTime,
       gameStatus,
-      currentPhase
+      currentPhase,
+      hasTriedSessionDetection
     });
-  }, [account, address, isConnected, status, hasSession, waitTime, gameStatus, currentPhase]);
+  }, [account, address, isConnected, status, hasSession, waitTime, gameStatus, currentPhase, hasTriedSessionDetection]);
 
   return (
     <div className="min-h-screen flex flex-col relative">
@@ -159,6 +189,7 @@ const Game = () => {
                 <div>Game Status: {gameStatus} | Phase: {currentPhase} | Wait: {waitTime}s</div>
                 <div>Account: {account ? '✅' : '❌'} | Address: {address ? '✅' : '❌'}</div>
                 <div>Connected: {isConnected.toString()} | Status: {status}</div>
+                <div>Session Tried: {hasTriedSessionDetection.toString()}</div>
               </div>
             </div>
           )}
@@ -179,8 +210,8 @@ const Game = () => {
             <div className="text-center mb-8">
               <PhaseIndicator currentPhase={currentPhase} />
               
-              {/* Emergency exit option after 10 seconds */}
-              {!hasSession && waitTime >= 10 && (
+              {/* Emergency exit option after 15 seconds */}
+              {!hasSession && waitTime >= 15 && (
                 <div className="mt-6">
                   <button
                     onClick={() => navigate('/', { replace: true })}
