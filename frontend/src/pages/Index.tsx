@@ -25,10 +25,37 @@ const Index = () => {
   );
   
   const { queueLength } = useRockPaperScissorsContract();
+  const [strkPrice, setStrkPrice] = useState<number | null>(null);
+  const [isLoadingPrice, setIsLoadingPrice] = useState(true);
+  const [entryFeeStrk, setEntryFeeStrk] = useState<string>("0");
   const [isConnecting, setIsConnecting] = useState(false);
 
   // Simple session check - just account existence  
   const hasSession = !!account;
+
+  // Load STRK price on mount
+  useEffect(() => {
+    const fetchStrkPrice = async () => {
+      try {
+        setIsLoadingPrice(true);
+        const response = await fetch('https://api.coinbase.com/v2/exchange-rates?currency=STRK');
+        const data = await response.json();
+        const strkPriceUsd = parseFloat(data.data.rates.USD);
+        setStrkPrice(strkPriceUsd);
+        
+        const entryFeeInStrk = (1 / strkPriceUsd).toFixed(4);
+        setEntryFeeStrk(entryFeeInStrk);
+      } catch (error) {
+        console.error('Failed to fetch STRK price:', error);
+        setStrkPrice(null);
+        setEntryFeeStrk("0");
+      } finally {
+        setIsLoadingPrice(false);
+      }
+    };
+
+    fetchStrkPrice();
+  }, []);
 
   // Simple connection handler
   const handlePlayClick = useCallback(async () => {
@@ -91,7 +118,7 @@ const Index = () => {
       {/* Header */}
       <header className="text-center py-12 px-4 relative z-10 mb-8">
         <div className="flex justify-center">
-          <h1 className="text-8xl font-bold neon-text mb-4">
+          <h1 className="text-8xl font-bold text-cyber-orange neon-text animate-neon-flicker mb-4">
             ROCK PAPER SCISSORS
           </h1>
         </div>
@@ -129,12 +156,38 @@ const Index = () => {
         </div>
       )}
 
-      <main className="flex-1 px-4">
-        {/* Statistics Row */}
+      {/* Main Content */}
+      <main className="flex-1 flex flex-col items-center px-4">
+        {/* Three Cards Row */}
         <div className="flex justify-center w-full mb-20">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-md">
-            <StatCard title="Queue Length" value={queueLength.toString()} />
-            <StatCard title="Prize Pool" value="$2" />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl">
+            <GameCard
+              icon={<Zap className="w-8 h-8 text-cyber-orange" />}
+              title="Entry Fee"
+              subtitle=""
+              value="$1"
+              description={isLoadingPrice ? "Loading..." : `${entryFeeStrk} STRK`}
+              isLoading={isLoadingPrice}
+              gradient="from-cyber-orange/20 to-cyber-red/20"
+            />
+            
+            <GameCard
+              icon={<Shield className="w-8 h-8 text-cyber-gold" />}
+              title="Game Rules"
+              subtitle=""
+              value="First to 3 Wins"
+              description="No Round Limit"
+              gradient="from-cyber-gold/20 to-cyber-amber/20"
+            />
+            
+            <GameCard
+              icon={<Trophy className="w-8 h-8 text-cyber-copper" />}
+              title="Prize Distribution"
+              subtitle=""
+              value="75% Winner"
+              description="25% Treasury"
+              gradient="from-cyber-copper/20 to-cyber-warm/20"
+            />
           </div>
         </div>
 
@@ -182,10 +235,10 @@ const Index = () => {
           </div>
         </div>
 
-        {/* Additional Statistics */}
+        {/* Statistics Row */}
         <div className="flex justify-center w-full mb-20">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-md">
-            <StatCard title="Games Played" value="142" />
+            <StatCard title="Games Played" value={queueLength.toString()} />
             <StatCard title="Total Prize Won" value="$3,891" />
           </div>
         </div>
