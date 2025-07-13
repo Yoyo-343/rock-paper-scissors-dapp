@@ -29,28 +29,34 @@ const Index = () => {
   const [isLoadingPrice, setIsLoadingPrice] = useState(true);
   const [entryFeeStrk, setEntryFeeStrk] = useState<string>("0");
   const [isConnecting, setIsConnecting] = useState(false);
-  const [shouldNavigate, setShouldNavigate] = useState(false);
+  const [connectionAttempts, setConnectionAttempts] = useState(0);
+  const [lastConnectionAttempt, setLastConnectionAttempt] = useState<number>(0);
 
-  // Simplified session check - just account existence
-  const hasSession = !!account;
+  // Enhanced session validation - check multiple conditions
+  const hasValidSession = useMemo(() => {
+    return !!(account && address && isConnected && status === 'connected');
+  }, [account, address, isConnected, status]);
 
-  // IMMEDIATE navigation after connection attempt
-  useEffect(() => {
-    if (shouldNavigate) {
-      console.log('🚀 IMMEDIATE NAVIGATION TRIGGERED');
-      setShouldNavigate(false);
-      setIsConnecting(false);
-      navigate('/game');
+  // Connection state tracking
+  const [isSessionValidated, setIsSessionValidated] = useState(false);
+  
+  // Validate session by attempting to get account info
+  const validateSession = useCallback(async () => {
+    if (!hasValidSession || !controllerConnector) return false;
+    
+    try {
+      // Check if we have a valid account connection
+      if (account && address && isConnected) {
+        setIsSessionValidated(true);
+        return true;
+      }
+    } catch (error) {
+      console.warn('Session validation failed:', error);
+      setIsSessionValidated(false);
     }
-  }, [shouldNavigate, navigate]);
-
-  // Watch for any account state change during connection
-  useEffect(() => {
-    if (isConnecting && account) {
-      console.log('✅ Account detected during connection, navigating immediately');
-      setShouldNavigate(true);
-    }
-  }, [isConnecting, account]);
+    
+    return false;
+  }, [hasValidSession, controllerConnector, account, address, isConnected]);
 
   // Load STRK price on mount
   useEffect(() => {
@@ -76,12 +82,42 @@ const Index = () => {
     fetchStrkPrice();
   }, []);
 
+  // Enhanced session validation when account state changes
+  useEffect(() => {
+    if (hasValidSession && !isSessionValidated) {
+      console.log('🔍 Account state changed, validating session...');
+      validateSession();
+    } else if (!hasValidSession) {
+      setIsSessionValidated(false);
+    }
+  }, [hasValidSession, isSessionValidated, validateSession]);
+
+  // Auto-navigate when session is validated and we're connecting
+  useEffect(() => {
+    if (isSessionValidated && isConnecting) {
+      console.log('✅ Session validated, navigating to game...');
+      setIsConnecting(false);
+      navigate('/game');
+    }
+  }, [isSessionValidated, isConnecting, navigate]);
+
+  // Enhanced connection handler with retry logic
   const handlePlayClick = useCallback(async () => {
-    // If already has session, go directly
-    if (hasSession) {
-      console.log('🎯 Session exists, navigating immediately');
+    // If already has valid session, navigate immediately
+    if (hasValidSession && isSessionValidated) {
+      console.log('🎯 Valid session exists, navigating immediately');
       navigate('/game');
       return;
+    }
+
+    // If session exists but not validated, validate it
+    if (hasValidSession && !isSessionValidated) {
+      console.log('🔄 Session exists but not validated, validating...');
+      const isValid = await validateSession();
+      if (isValid) {
+        navigate('/game');
+        return;
+      }
     }
 
     if (!controllerConnector) {
@@ -93,18 +129,29 @@ const Index = () => {
       return;
     }
 
-    console.log('🎮 Starting connection...');
+    // Prevent too frequent connection attempts
+    const now = Date.now();
+    if (now - lastConnectionAttempt < 1000) {
+      console.log('⏰ Too soon for another connection attempt');
+      return;
+    }
+    
+    setLastConnectionAttempt(now);
     setIsConnecting(true);
+    setConnectionAttempts(prev => prev + 1);
+
+    console.log(`🎮 Starting connection attempt #${connectionAttempts + 1}...`);
 
     try {
-      // Call connect and navigate IMMEDIATELY on success
-      const result = await connect({ connector: controllerConnector });
-      console.log('✅ Connect completed, result:', result);
+      // Clear previous session state
+      setIsSessionValidated(false);
       
-      // Navigate immediately - don't wait for state updates
-      console.log('🚀 Navigating immediately after connect success');
-      setIsConnecting(false);
-      navigate('/game');
+      // Attempt connection
+      const result = await connect({ connector: controllerConnector });
+      console.log('✅ Connect call completed:', result);
+      
+      // Don't navigate immediately, wait for session validation
+      // The useEffect above will handle navigation once session is validated
       
     } catch (error) {
       console.error('❌ Connection failed:', error);
@@ -113,25 +160,26 @@ const Index = () => {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       toast({
         title: "Connection Failed",
-        description: `Failed to connect: ${errorMessage}`,
+        description: `Failed to connect: ${errorMessage}. Attempt ${connectionAttempts + 1}`,
         variant: "destructive",
       });
     }
 
-    // AGGRESSIVE FALLBACK - navigate after 2 seconds regardless
+    // Fallback timeout - if connection doesn't resolve in 10 seconds, stop loading
     setTimeout(() => {
       if (isConnecting) {
-        console.log('⚡ AGGRESSIVE FALLBACK - navigating after 2 seconds');
+        console.log('⏰ Connection timeout, stopping loading state');
         setIsConnecting(false);
-        navigate('/game');
       }
-    }, 2000);
+    }, 10000);
 
-  }, [hasSession, controllerConnector, connect, navigate, toast, isConnecting]);
+  }, [hasValidSession, isSessionValidated, controllerConnector, connect, navigate, toast, connectionAttempts, lastConnectionAttempt, validateSession]);
 
   const handleDisconnect = async () => {
     try {
       await disconnect();
+      setIsSessionValidated(false);
+      setConnectionAttempts(0);
       toast({
         title: "Disconnected",
         description: "Successfully disconnected from wallet",
@@ -146,9 +194,10 @@ const Index = () => {
     }
   };
 
-  // Simple manual navigation
+  // Manual navigation for stuck connections
   const handleManualNavigation = () => {
     console.log('🎯 Manual navigation clicked');
+    setIsConnecting(false);
     navigate('/game');
   };
 
@@ -160,7 +209,7 @@ const Index = () => {
       {/* Header */}
       <header className="text-center py-12 px-4 relative z-10 mb-8">
         <div className="flex justify-center">
-          <h1 className="text-8xl font-bold text-cyber-orange neon-text animate-neon-flicker mb-4">
+          <h1 className="text-8xl font-bold text-white mb-4">
             ROCK PAPER SCISSORS
           </h1>
         </div>
@@ -170,7 +219,7 @@ const Index = () => {
       </header>
 
       {/* Session Status */}
-      {hasSession && (
+      {hasValidSession && isSessionValidated && (
         <div className="text-center mb-8 px-4">
           <div className="inline-flex items-center gap-2 px-4 py-2 bg-green-500/20 border border-green-500/40 rounded-lg text-green-400">
             <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
@@ -194,16 +243,17 @@ const Index = () => {
             <div className="flex items-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin" />
               <span className="text-sm font-medium">
-                Creating session...
+                Connecting to Cartridge Controller...
               </span>
             </div>
             <div className="text-xs text-gray-300 text-center">
-              <p>If the modal disappears but you don't navigate:</p>
+              <p>Attempt #{connectionAttempts}</p>
+              <p>If this takes too long:</p>
               <Button
                 onClick={handleManualNavigation}
                 className="mt-2 bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-1 text-xs"
               >
-                Click here to continue →
+                Continue Manually →
               </Button>
             </div>
           </div>
@@ -216,7 +266,8 @@ const Index = () => {
           <div className="inline-flex flex-col items-center gap-1 px-4 py-2 bg-gray-800/50 border border-gray-600/40 rounded text-xs text-gray-400">
             <div>Status: {status} | Connected: {isConnected.toString()}</div>
             <div>Account: {account ? '✅' : '❌'} | Address: {address ? '✅' : '❌'}</div>
-            <div>Connecting: {isConnecting.toString()}</div>
+            <div>Valid Session: {hasValidSession.toString()} | Validated: {isSessionValidated.toString()}</div>
+            <div>Connecting: {isConnecting.toString()} | Attempts: {connectionAttempts}</div>
           </div>
         </div>
       )}
@@ -269,9 +320,9 @@ const Index = () => {
                 {isConnecting ? (
                   <>
                     <Loader2 className="mr-3 h-6 w-6 animate-spin" />
-                    Creating Session...
+                    Connecting...
                   </>
-                ) : hasSession ? (
+                ) : (hasValidSession && isSessionValidated) ? (
                   <>
                     <Play className="mr-3 h-6 w-6" />
                     Enter Game
