@@ -29,9 +29,23 @@ const Index = () => {
   const [isLoadingPrice, setIsLoadingPrice] = useState(true);
   const [entryFeeStrk, setEntryFeeStrk] = useState<string>("0");
   const [isConnecting, setIsConnecting] = useState(false);
+  const [connectionAttempts, setConnectionAttempts] = useState(0);
 
-  // Simple session check - just account existence  
-  const hasSession = !!account;
+  // Enhanced session validation
+  const hasValidSession = useMemo(() => {
+    const sessionValid = !!(account && address && isConnected);
+    
+    if (sessionValid) {
+      console.log('✅ Valid session detected:', {
+        account: !!account,
+        address: !!address,
+        isConnected,
+        status
+      });
+    }
+    
+    return sessionValid;
+  }, [account, address, isConnected, status]);
 
   // Load STRK price on mount
   useEffect(() => {
@@ -57,9 +71,11 @@ const Index = () => {
     fetchStrkPrice();
   }, []);
 
-  // Simple connection handler
+  // Enhanced connection handler with proper async flow
   const handlePlayClick = useCallback(async () => {
-    if (hasSession) {
+    // If already have valid session, go directly to game
+    if (hasValidSession) {
+      console.log('🎮 Already have valid session, navigating to game');
       navigate('/game');
       return;
     }
@@ -74,41 +90,71 @@ const Index = () => {
     }
 
     setIsConnecting(true);
+    setConnectionAttempts(prev => prev + 1);
     
     try {
+      console.log('🔌 Attempting to connect to Cartridge Controller...');
+      
+      // Call connect and wait for it to complete
       await connect({ connector: controllerConnector });
-      // Small delay to ensure connection is established
-      setTimeout(() => {
-        navigate('/game');
-      }, 500);
+      
+      console.log('✅ Connect call completed, waiting for state sync...');
+      
+      // Navigate immediately after successful connect call
+      // The Game component will handle session validation
+      navigate('/game');
+      
     } catch (error) {
-      console.error('Connection failed:', error);
+      console.error('❌ Connection failed:', error);
+      
+      // More specific error handling
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
       toast({
         title: "Connection Failed",
-        description: "Failed to connect to Cartridge Controller. Please try again.",
+        description: `Failed to connect to Cartridge Controller: ${errorMessage}. Please try again.`,
         variant: "destructive",
       });
+      
+      // Reset connection attempts if it was a user rejection
+      if (errorMessage.includes('rejected') || errorMessage.includes('denied')) {
+        setConnectionAttempts(0);
+      }
+      
     } finally {
       setIsConnecting(false);
     }
-  }, [hasSession, controllerConnector, connect, navigate, toast]);
+  }, [hasValidSession, controllerConnector, connect, navigate, toast]);
 
   const handleDisconnect = async () => {
     try {
       await disconnect();
       toast({
         title: "Disconnected",
-        description: "Successfully disconnected from wallet",
+        description: "Successfully disconnected from Cartridge Controller.",
       });
     } catch (error) {
-      console.error('Failed to disconnect:', error);
+      console.error('Disconnect failed:', error);
       toast({
         title: "Disconnect Failed",
-        description: "Failed to disconnect. Please refresh the page.",
+        description: "Failed to disconnect properly. Please refresh the page.",
         variant: "destructive",
       });
     }
   };
+
+  // Debug connection state
+  useEffect(() => {
+    console.log('🔍 Connection state:', {
+      hasValidSession,
+      account: !!account,
+      address: !!address,
+      isConnected,
+      status,
+      isConnecting,
+      connectionAttempts
+    });
+  }, [hasValidSession, account, address, isConnected, status, isConnecting, connectionAttempts]);
 
   return (
     <div className="min-h-screen flex flex-col relative">
@@ -128,7 +174,7 @@ const Index = () => {
       </header>
 
       {/* Session Status */}
-      {hasSession && (
+      {hasValidSession && (
         <div className="text-center mb-8 px-4">
           <div className="inline-flex items-center gap-2 px-4 py-2 bg-green-500/20 border border-green-500/40 rounded-lg text-green-400">
             <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
@@ -151,7 +197,7 @@ const Index = () => {
           <div className="inline-flex flex-col items-center gap-1 px-4 py-2 bg-gray-800/50 border border-gray-600/40 rounded text-xs text-gray-400">
             <div>Status: {status} | Connected: {isConnected.toString()}</div>
             <div>Account: {account ? '✅' : '❌'} | Address: {address ? '✅' : '❌'}</div>
-            <div>Has Session: {hasSession.toString()} | Connecting: {isConnecting.toString()}</div>
+            <div>Has Session: {hasValidSession.toString()} | Connecting: {isConnecting.toString()}</div>
           </div>
         </div>
       )}
@@ -206,7 +252,7 @@ const Index = () => {
                     <Loader2 className="mr-3 h-6 w-6 animate-spin" />
                     Connecting...
                   </>
-                ) : hasSession ? (
+                ) : hasValidSession ? (
                   <>
                     <Play className="mr-3 h-6 w-6" />
                     Enter Game

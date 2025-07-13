@@ -39,26 +39,35 @@ const Game = () => {
     moveTimeoutStart,
   } = useRockPaperScissorsContract();
 
-  // Track how long we've been waiting for session
+  // Track session validation state
   const [waitTime, setWaitTime] = useState(0);
-  const [hasTriedSessionDetection, setHasTriedSessionDetection] = useState(false);
+  const [hasAttemptedSessionValidation, setHasAttemptedSessionValidation] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<string>('');
 
-  // Enhanced session check with better timing
-  const hasSession = useMemo(() => {
-    // More robust session validation
-    const sessionExists = !!(account && address);
+  // Enhanced session validation with better timing and debugging
+  const hasValidSession = useMemo(() => {
+    const sessionValid = !!(account && address && isConnected);
     
-    // If we have a session, mark that we've tried detection
-    if (sessionExists && !hasTriedSessionDetection) {
-      setHasTriedSessionDetection(true);
+    // Create debug info
+    const debug = `Account: ${!!account}, Address: ${!!address}, Connected: ${isConnected}, Status: ${status}`;
+    setDebugInfo(debug);
+    
+    // Mark that we've attempted validation
+    if (!hasAttemptedSessionValidation) {
+      setHasAttemptedSessionValidation(true);
+      console.log('🔍 First session validation attempt:', debug);
     }
     
-    return sessionExists;
-  }, [account, address, hasTriedSessionDetection]);
+    if (sessionValid) {
+      console.log('✅ Valid session confirmed:', debug);
+    }
+    
+    return sessionValid;
+  }, [account, address, isConnected, status, hasAttemptedSessionValidation]);
 
-  // Determine current phase based on session and game state
+  // Determine current phase for PhaseIndicator
   const getCurrentPhase = (): 1 | 2 | 3 => {
-    if (!hasSession) return 1; // Checking Cartridge Controller session
+    if (!hasValidSession) return 1; // Checking Cartridge Controller session
     if (gameStatus === 'idle' || gameStatus === 'queue') return 2; // Finding an opponent
     return 3; // Launching game
   };
@@ -81,68 +90,129 @@ const Game = () => {
     navigate('/');
   };
 
-  // Track wait time and only redirect after longer wait for better UX
+  // Track wait time for session validation
   useEffect(() => {
-    const interval = setInterval(() => {
-      setWaitTime(prev => prev + 1);
-    }, 1000);
+    if (!hasValidSession) {
+      const interval = setInterval(() => {
+        setWaitTime(prev => prev + 1);
+      }, 1000);
 
-    return () => clearInterval(interval);
-  }, []);
-
-  // More patient session validation - wait 15 seconds before giving up
-  useEffect(() => {
-    if (!hasSession && waitTime >= 15) {
-      console.log('❌ No session after 15 seconds, redirecting to homepage');
-      navigate('/', { replace: true });
+      return () => clearInterval(interval);
+    } else {
+      // Reset wait time when session is valid
+      setWaitTime(0);
     }
-  }, [hasSession, waitTime, navigate]);
+  }, [hasValidSession]);
 
-  // Auto-join queue when session exists and game is idle
+  // More patient session validation - wait 20 seconds before giving up
   useEffect(() => {
-    if (hasSession && gameStatus === 'idle' && !error && hasTriedSessionDetection) {
-      console.log('🎮 Session exists and idle state - auto-joining queue...');
+    if (!hasValidSession && waitTime >= 20) {
+      console.log('❌ No valid session after 20 seconds, redirecting to homepage');
+      console.log('Final debug info:', debugInfo);
+      
+      navigate('/', { 
+        replace: true,
+        state: { 
+          error: 'Session validation timeout',
+          debugInfo: debugInfo 
+        }
+      });
+    }
+  }, [hasValidSession, waitTime, navigate, debugInfo]);
+
+  // Auto-join queue when session is valid and game is idle
+  useEffect(() => {
+    if (hasValidSession && gameStatus === 'idle' && !error && hasAttemptedSessionValidation) {
+      console.log('🎮 Valid session and idle state - auto-joining queue...');
       const timer = setTimeout(() => {
         joinQueue();
       }, 1000);
       
       return () => clearTimeout(timer);
     }
-  }, [hasSession, gameStatus, joinQueue, error, hasTriedSessionDetection]);
-
-  // Enhanced session state monitoring
-  useEffect(() => {
-    // Check session state every second for the first 10 seconds
-    if (!hasSession && waitTime < 10) {
-      const checkInterval = setInterval(() => {
-        console.log('🔍 Checking session state...', {
-          account: !!account,
-          address: !!address,
-          isConnected,
-          status,
-          waitTime
-        });
-      }, 1000);
-
-      return () => clearInterval(checkInterval);
-    }
-  }, [hasSession, waitTime, account, address, isConnected, status]);
+  }, [hasValidSession, gameStatus, joinQueue, error, hasAttemptedSessionValidation]);
 
   // Debug logging for session state changes
   useEffect(() => {
-    console.log('🔍 Game component session state:', {
-      account: !!account,
-      address: !!address,
-      isConnected,
-      status,
-      hasSession,
+    console.log('🔍 Session state update:', {
+      hasValidSession,
       waitTime,
       gameStatus,
-      currentPhase,
-      hasTriedSessionDetection
+      debugInfo,
+      currentPhase
     });
-  }, [account, address, isConnected, status, hasSession, waitTime, gameStatus, currentPhase, hasTriedSessionDetection]);
+  }, [hasValidSession, waitTime, gameStatus, debugInfo, currentPhase]);
 
+  // Early return for session validation phase
+  if (!hasValidSession) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-black text-white overflow-hidden relative">
+        <FloatingSymbols />
+        
+        {/* Header */}
+        <div className="relative z-10 flex items-center justify-between p-6 border-b border-purple-500/20">
+          <button
+            onClick={handleBack}
+            className="flex items-center gap-2 text-purple-400 hover:text-white transition-colors"
+          >
+            <ArrowLeft className="h-5 w-5" />
+            Back to Home
+          </button>
+          
+          <div className="flex items-center gap-2">
+            <Trophy className="h-6 w-6 text-yellow-400" />
+            <span className="text-xl font-bold">Rock Paper Scissors</span>
+          </div>
+        </div>
+
+        {/* Main content */}
+        <div className="relative z-10 max-w-4xl mx-auto p-6">
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-bold mb-4 text-cyber-orange neon-text animate-neon-flicker">
+              Validating Session
+            </h1>
+            <p className="text-lg text-gray-300 mb-6">
+              Please wait while we establish your connection...
+            </p>
+          </div>
+
+          {/* Phase Indicator */}
+          <div className="mb-8">
+            <PhaseIndicator currentPhase={currentPhase} />
+          </div>
+
+          {/* Debug information */}
+          <div className="bg-gray-800/50 rounded-lg p-4 mb-6">
+            <h3 className="text-lg font-semibold text-yellow-400 mb-2">Connection Status</h3>
+            <div className="space-y-1 text-sm text-gray-300">
+              <div>⏱️ Wait time: {waitTime}s / 20s</div>
+              <div>📊 {debugInfo}</div>
+              <div>🎯 Current phase: {currentPhase}</div>
+            </div>
+          </div>
+
+          {/* Emergency fallback */}
+          {waitTime > 15 && (
+            <div className="text-center">
+              <p className="text-yellow-400 mb-4">
+                Taking longer than expected...
+              </p>
+              <button
+                onClick={() => navigate('/')}
+                className="px-6 py-3 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors"
+              >
+                Return to Homepage
+              </button>
+            </div>
+          )}
+        </div>
+
+        <Footer />
+      </div>
+    );
+  }
+
+  // Main game content (when session is valid)
   return (
     <div className="min-h-screen flex flex-col relative">
       <FloatingSymbols />
@@ -156,7 +226,7 @@ const Game = () => {
               <div className="inline-flex flex-col items-center gap-4 px-6 py-4 bg-red-500/20 border border-red-500/40 rounded-lg text-red-400 max-w-md mx-auto">
                 <span className="text-sm font-medium">Error: {error}</span>
                 <div className="flex gap-2">
-                  {hasSession ? (
+                  {hasValidSession ? (
                     <button
                       onClick={() => joinQueue()}
                       className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded font-medium"
@@ -189,7 +259,7 @@ const Game = () => {
                 <div>Game Status: {gameStatus} | Phase: {currentPhase} | Wait: {waitTime}s</div>
                 <div>Account: {account ? '✅' : '❌'} | Address: {address ? '✅' : '❌'}</div>
                 <div>Connected: {isConnected.toString()} | Status: {status}</div>
-                <div>Session Tried: {hasTriedSessionDetection.toString()}</div>
+                <div>Session Tried: {hasAttemptedSessionValidation.toString()}</div>
               </div>
             </div>
           )}
@@ -211,7 +281,7 @@ const Game = () => {
               <PhaseIndicator currentPhase={currentPhase} />
               
               {/* Emergency exit option after 15 seconds */}
-              {!hasSession && waitTime >= 15 && (
+              {!hasValidSession && waitTime >= 15 && (
                 <div className="mt-6">
                   <button
                     onClick={() => navigate('/', { replace: true })}
